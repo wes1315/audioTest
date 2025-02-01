@@ -18,4 +18,4 @@ def play_audio(file_path):
 
 if __name__ == "__main__":
     # Play the audio file
-    play_audio("output.wav")
+    play_audio("/tmp/output.wav")
