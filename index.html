@@ -9,49 +9,83 @@
     <h1>Audio Capture</h1>
     <button id="startButton">Start Recording</button>
     <button id="stopButton" disabled>Stop Recording</button>
+    <button id="playButton" disabled>Play Recording</button>
+    <audio id="audioPlayer" controls></audio>
+
     <script>
         let mediaRecorder;
         let audioChunks = [];
-        const socket = new WebSocket("ws://localhost:8765");
-    
+        const socket = new WebSocket("wss://lamuguo-3700x:8765");
+
         // Handle WebSocket connection
         socket.addEventListener("open", () => {
             console.log("Connected to WebSocket server");
         });
-    
+
         // Start recording
         document.getElementById("startButton").addEventListener("click", async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 mediaRecorder = new MediaRecorder(stream);
-    
+
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
                         audioChunks.push(event.data);
+
+                        // Convert Blob to ArrayBuffer for WebSocket
                         const reader = new FileReader();
                         reader.onload = () => {
                             const arrayBuffer = reader.result;
+                            console.log("Sending audio data length: " + arrayBuffer.byteLength);
                             socket.send(arrayBuffer); // Send audio data to the backend
                         };
                         reader.readAsArrayBuffer(event.data);
                     }
                 };
-    
+
                 mediaRecorder.start(1000); // Capture audio every 1 second
                 console.log("Recording started");
+
+                // Disable/Enable buttons
                 document.getElementById("startButton").disabled = true;
                 document.getElementById("stopButton").disabled = false;
+                document.getElementById("playButton").disabled = true;
             } catch (error) {
                 console.error("Error accessing microphone:", error);
             }
         });
-    
-        // Stop recording
+
+        // Stop recording and store in localStorage
         document.getElementById("stopButton").addEventListener("click", () => {
             mediaRecorder.stop();
             console.log("Recording stopped");
-            document.getElementById("startButton").disabled = false;
-            document.getElementById("stopButton").disabled = true;
+
+            // Merge audio chunks into a single Blob
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            
+            // Convert Blob to Base64 and store in localStorage
+            const reader = new FileReader();
+            reader.onload = () => {
+                localStorage.setItem("savedAudio", reader.result);
+                console.log("Audio saved to localStorage");
+            };
+            reader.readAsDataURL(audioBlob);
+
+            // Enable play button
+            document.getElementById("playButton").disabled = false;
+        });
+
+        // Play the recorded audio
+        document.getElementById("playButton").addEventListener("click", () => {
+            const savedAudio = localStorage.getItem("savedAudio");
+            if (savedAudio) {
+                const audioPlayer = document.getElementById("audioPlayer");
+                audioPlayer.src = savedAudio;
+                audioPlayer.play();
+                console.log("Playing recorded audio");
+            } else {
+                console.log("No audio found in localStorage");
+            }
         });
     </script>
 </body>
