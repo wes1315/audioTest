@@ -9,7 +9,7 @@ import ssl
 
 
 # WebSocket server handler
-async def handle_connection(websocket, path):
+async def handle_connection(websocket):
     print("Client connected")
     try:
         # 打开 WebM 文件用于写入
@@ -30,8 +30,8 @@ async def start_websocket_server():
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(certfile="ssl/server.crt", keyfile="ssl/server.key")
 
-    async with websockets.serve(handle_connection, "0.0.0.0", 8765, ssl=ssl_context, origins=["https://lamuguo-3700x:8443"]):
-        print("WebSocket server started at wss://0.0.0.0:8765")
+    async with websockets.serve(handle_connection, "0.0.0.0", 8765):
+        print("WebSocket server started at ws://0.0.0.0:8765")
         await asyncio.Future()  # Run forever
 
 
