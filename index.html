@@ -15,7 +15,7 @@
     <script>
         let mediaRecorder;
         let audioChunks = [];
-        const socket = new WebSocket("wss://lamuguo-3700x:8765");
+        const socket = new WebSocket("ws://lamuguo-3700x:8765");
 
         // Handle WebSocket connection
         socket.addEventListener("open", () => {
@@ -26,7 +26,8 @@
         document.getElementById("startButton").addEventListener("click", async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                const options = { mimeType: 'audio/ogg;codecs=opus' };
+                mediaRecorder = new MediaRecorder(stream, options);
 
                 mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
@@ -64,8 +65,10 @@
             const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
             
             // Convert Blob to Base64 and store in localStorage
+            console.log("xfguo: before new FileReader");
             const reader = new FileReader();
             reader.onload = () => {
+                console.log("xfguo: to save to local storageAudio saved to localStorage");
                 localStorage.setItem("savedAudio", reader.result);
                 console.log("Audio saved to localStorage");
             };
@@ -77,6 +80,7 @@
 
         // Play the recorded audio
         document.getElementById("playButton").addEventListener("click", () => {
+            console.log("xfguo: before getItem saveAudio");
             const savedAudio = localStorage.getItem("savedAudio");
             if (savedAudio) {
                 const audioPlayer = document.getElementById("audioPlayer");

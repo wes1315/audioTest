@@ -1,27 +1,35 @@
-import asyncio
-import websockets
-import wave
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from socketserver import TCPServer
-import threading
+
+import asyncio
+import os
 import subprocess
 import ssl
+import threading
+import uuid
+import wave
+import websockets
 
 
-# WebSocket server handler
-async def handle_connection(websocket, path):
+async def handle_connection(websocket):
     print("Client connected")
-    try:
-        # 打开 WebM 文件用于写入
-        with open("/tmp/output.webm", "wb") as audio_file:
-            async for message in websocket:
-                print(f"Received audio data: {len(message)} bytes")
-                audio_file.write(message)  # 直接写入 WebM 格式的音频数据
+    # 为每个连接生成一个唯一的目录
+    connection_hash = uuid.uuid4().hex
+    directory = f"/tmp/audio-{connection_hash}"
+    os.makedirs(directory, exist_ok=True)
+    print(f"Audio files will be saved in: {directory}")
 
-        print("Recording saved to /tmp/output.webm")
-        # 播放录制的音频（使用 ffplay）
-        # subprocess.run(["ffplay", "-nodisp", "-autoexit", "/tmp/output.webm"])
-    
+    counter = 1
+    try:
+        async for message in websocket:
+            # 构造文件名，如 /tmp/audio-<hashcode>/00001.webm
+            filename = os.path.join(directory, f"{counter:05d}.webm")
+            with open(filename, "wb") as audio_file:
+                audio_file.write(message)
+            print(f"Saved message {counter} ({len(message)} bytes) to {filename}")
+            counter += 1
+
+        print("Connection closed. All audio messages have been saved.")
     except websockets.ConnectionClosed:
         print("Client disconnected")
 
@@ -30,24 +38,24 @@ async def start_websocket_server():
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain(certfile="ssl/server.crt", keyfile="ssl/server.key")
 
-    async with websockets.serve(handle_connection, "0.0.0.0", 8765, ssl=ssl_context, origins=["https://lamuguo-3700x:8443"]):
-        print("WebSocket server started at wss://0.0.0.0:8765")
+    async with websockets.serve(handle_connection, "0.0.0.0", 8765):
+        print("WebSocket server started at ws://0.0.0.0:8765")
         await asyncio.Future()  # Run forever
 
 
 def start_https_server():
     handler = SimpleHTTPRequestHandler
-    server_address = ("0.0.0.0", 8443)  # HTTPS 监听 8443 端口
+    server_address = ("0.0.0.0", 8080)  # HTTPS 监听 8080 端口
     httpd = HTTPServer(server_address, handler)
 
-    # 创建 SSL 上下文
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(certfile="ssl/server.crt", keyfile="ssl/server.key")
+    # # 创建 SSL 上下文
+    # context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    # context.load_cert_chain(certfile="ssl/server.crt", keyfile="ssl/server.key")
 
-    # 使用新的方式封装 SSL
-    httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+    # # 使用新的方式封装 SSL
+    # httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
 
-    print("HTTPS server started at https://0.0.0.0:8443")
+    print("HTTPS server started at https://0.0.0.0:8080")
     httpd.serve_forever()
 
 
