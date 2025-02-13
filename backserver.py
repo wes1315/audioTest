@@ -6,6 +6,7 @@ import os
 import subprocess
 import ssl
 import threading
+import time
 import uuid
 import wave
 import websockets
@@ -23,10 +24,11 @@ async def handle_connection(websocket):
     try:
         async for message in websocket:
             # 构造文件名，如 /tmp/audio-<hashcode>/00001.webm
-            filename = os.path.join(directory, f"{counter:05d}.webm")
+            filename = os.path.join(directory, f"{counter:05d}.wav")
             with open(filename, "wb") as audio_file:
                 audio_file.write(message)
-            print(f"Saved message {counter} ({len(message)} bytes) to {filename}")
+            receive_time = time.time()
+            print(f"Saved message {counter} ({len(message)} bytes) to {filename} at {receive_time}")
             counter += 1
 
         print("Connection closed. All audio messages have been saved.")
