@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{ include = "sonara" }]
 
 [tool.poetry.dependencies]
-python = "3.12.1"
+python = "^3.10"
 websockets = "14.2"
 
 [tool.poetry.group.dev.dependencies]
