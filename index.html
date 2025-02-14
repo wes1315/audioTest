@@ -1,92 +1,203 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Capture</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WAV/PCM Audio Capture</title>
 </head>
 <body>
-    <h1>Audio Capture</h1>
-    <button id="startButton">Start Recording</button>
-    <button id="stopButton" disabled>Stop Recording</button>
-    <button id="playButton" disabled>Play Recording</button>
-    <audio id="audioPlayer" controls></audio>
+  <h1>WAV/PCM Audio Capture</h1>
+  <button id="startButton">Start Recording</button>
+  <button id="stopButton" disabled>Stop Recording</button>
+  <button id="playButton" disabled>Play Recording</button>
+  <audio id="audioPlayer" controls></audio>
 
-    <script>
-        let mediaRecorder;
-        let audioChunks = [];
-        const socket = new WebSocket("wss://lamuguo-3700x:8765");
+  <script>
+    // 全局变量
+    let audioContext;
+    let scriptProcessor;
+    let mediaStreamSource;
+    let audioStream;
+    let pcmBuffer = [];      // 用于暂存未满1秒的数据
+    let allPcmData = [];     // 记录整个录制过程所有采样
+    let finalBlob;           // 整个录音生成的 WAV 文件
+    let socket = new WebSocket("ws://lamuguo-3700x:8765");
+    
+    const SAMPLE_RATE = 16000;  // 16 kHz 采样率
+    const CHUNK_SIZE = SAMPLE_RATE; // 1秒音频对应的采样点数量
+    const BUFFER_SIZE = 4096;   // ScriptProcessorNode 的缓冲区大小
 
-        // Handle WebSocket connection
-        socket.addEventListener("open", () => {
-            console.log("Connected to WebSocket server");
-        });
+    // WebSocket 连接事件
+    socket.addEventListener("open", () => {
+      console.log("Connected to WebSocket server");
+    });
 
-        // Start recording
-        document.getElementById("startButton").addEventListener("click", async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+    // 重连方法（可选）
+    function connectWebSocket() {
+      let ws = new WebSocket("ws://lamuguo-3700x:8765");
+      ws.addEventListener("open", () => {
+        console.log("Connected to WebSocket server");
+      });
+      ws.addEventListener("error", (error) => {
+        console.error("WebSocket error:", error);
+        setTimeout(() => {
+          socket = connectWebSocket();
+        }, 1000);
+      });
+      return ws;
+    }
 
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunks.push(event.data);
+    // 将 PCM 数据封装为 WAV Blob（16位单通道）
+    function encodeWAV(pcmData) {
+      const buffer = new ArrayBuffer(44 + pcmData.length * 2);
+      const view = new DataView(buffer);
 
-                        // Convert Blob to ArrayBuffer for WebSocket
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            const arrayBuffer = reader.result;
-                            console.log("Sending audio data length: " + arrayBuffer.byteLength);
-                            socket.send(arrayBuffer); // Send audio data to the backend
-                        };
-                        reader.readAsArrayBuffer(event.data);
-                    }
-                };
+      // WAV 头部
+      writeString(view, 0, "RIFF"); // RIFF header
+      view.setUint32(4, 36 + pcmData.length * 2, true); // File size
+      writeString(view, 8, "WAVE"); // WAVE format
+      writeString(view, 12, "fmt "); // fmt chunk
+      view.setUint32(16, 16, true); // Subchunk1 size (16 for PCM)
+      view.setUint16(20, 1, true);  // Audio format (1 表示 PCM)
+      view.setUint16(22, 1, true);  // 单声道
+      view.setUint32(24, SAMPLE_RATE, true);  // 采样率
+      view.setUint32(28, SAMPLE_RATE * 2, true); // 字节率 = 采样率 * 2 (2 bytes per sample)
+      view.setUint16(32, 2, true);  // Block align = 2
+      view.setUint16(34, 16, true); // Bits per sample
+      writeString(view, 36, "data"); // data chunk
+      view.setUint32(40, pcmData.length * 2, true); // Data size
 
-                mediaRecorder.start(1000); // Capture audio every 1 second
-                console.log("Recording started");
+      // 写入 PCM 数据，转换为 16 位整数
+      let offset = 44;
+      for (let i = 0; i < pcmData.length; i++, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, pcmData[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      }
 
-                // Disable/Enable buttons
-                document.getElementById("startButton").disabled = true;
-                document.getElementById("stopButton").disabled = false;
-                document.getElementById("playButton").disabled = true;
-            } catch (error) {
-                console.error("Error accessing microphone:", error);
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    // 辅助函数：将字符串写入 DataView
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    // 将每秒封装好的 WAV Blob 发送到 WebSocket
+    function scheduleSend(wavBlob) {
+      setTimeout(async () => {
+        try {
+          if (socket.readyState === WebSocket.OPEN) {
+            if (socket.bufferedAmount > 0) {
+              console.log("WebSocket buffer is not empty");
             }
-        });
+            const arrayBuffer = await wavBlob.arrayBuffer();
+            socket.send(arrayBuffer);
+            console.log("Sent 1 second of audio data at", Date.now());
+          } else {
+            console.error("WebSocket is not open");
+          }
+        } catch (error) {
+          console.error("Error sending audio data:", error);
+        }
+      }, 0); // 异步调度
+    }
 
-        // Stop recording and store in localStorage
-        document.getElementById("stopButton").addEventListener("click", () => {
-            mediaRecorder.stop();
-            console.log("Recording stopped");
+    // 开始录制
+    document.getElementById("startButton").addEventListener("click", async () => {
+      try {
+        // 请求麦克风权限
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // 创建 AudioContext，指定采样率
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        mediaStreamSource = audioContext.createMediaStreamSource(audioStream);
 
-            // Merge audio chunks into a single Blob
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-            
-            // Convert Blob to Base64 and store in localStorage
-            const reader = new FileReader();
-            reader.onload = () => {
-                localStorage.setItem("savedAudio", reader.result);
-                console.log("Audio saved to localStorage");
-            };
-            reader.readAsDataURL(audioBlob);
+        // 创建 ScriptProcessorNode 捕获 PCM 数据
+        scriptProcessor = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+        scriptProcessor.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          // 将新数据追加到 pcmBuffer 和全局录音数据 allPcmData 中
+          pcmBuffer.push(...inputData);
+          allPcmData.push(...inputData);
 
-            // Enable play button
-            document.getElementById("playButton").disabled = false;
-        });
+          // 每当累计的数据达到 1 秒（CHUNK_SIZE 个采样点）时进行处理
+          while (pcmBuffer.length >= CHUNK_SIZE) {
+            const chunk = pcmBuffer.slice(0, CHUNK_SIZE);
+            pcmBuffer = pcmBuffer.slice(CHUNK_SIZE);
+            const wavBlob = encodeWAV(chunk);
+            // 发送该 1 秒数据块
+            scheduleSend(wavBlob);
+          }
+        };
 
-        // Play the recorded audio
-        document.getElementById("playButton").addEventListener("click", () => {
-            const savedAudio = localStorage.getItem("savedAudio");
-            if (savedAudio) {
-                const audioPlayer = document.getElementById("audioPlayer");
-                audioPlayer.src = savedAudio;
-                audioPlayer.play();
-                console.log("Playing recorded audio");
-            } else {
-                console.log("No audio found in localStorage");
-            }
-        });
-    </script>
+        // 建立音频节点连接：麦克风 -> processor -> AudioContext.destination（后者有助激活 processor）
+        mediaStreamSource.connect(scriptProcessor);
+        scriptProcessor.connect(audioContext.destination);
+
+        console.log("Recording started");
+        document.getElementById("startButton").disabled = true;
+        document.getElementById("stopButton").disabled = false;
+        document.getElementById("playButton").disabled = true;
+        
+        // 清空之前的录音数据
+        allPcmData = [];
+        pcmBuffer = [];
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+      }
+    });
+
+    // 停止录制
+    document.getElementById("stopButton").addEventListener("click", () => {
+      if (scriptProcessor) {
+        scriptProcessor.disconnect();
+        scriptProcessor = null;
+      }
+      if (mediaStreamSource) {
+        mediaStreamSource.disconnect();
+        mediaStreamSource = null;
+      }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+      }
+
+      // 这里可以选择处理剩余不足 1 秒的数据（若有）
+      // 本例中我们直接忽略
+
+      // 使用整个录制过程中收集到的 PCM 数据生成完整的 WAV Blob
+      finalBlob = encodeWAV(allPcmData);
+      console.log("Recording stopped");
+
+      // 将录音转换为 data URL 保存到 localStorage，以便播放
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        localStorage.setItem("savedAudio", e.target.result);
+      };
+      reader.readAsDataURL(finalBlob);
+
+      document.getElementById("startButton").disabled = false;
+      document.getElementById("stopButton").disabled = true;
+      document.getElementById("playButton").disabled = false;
+    });
+
+    // 播放录制的音频
+    document.getElementById("playButton").addEventListener("click", () => {
+      const savedAudio = localStorage.getItem("savedAudio");
+      if (savedAudio) {
+        const audioPlayer = document.getElementById("audioPlayer");
+        audioPlayer.src = savedAudio;
+        audioPlayer.play();
+        console.log("Playing recorded audio");
+      } else {
+        console.log("No audio found in localStorage");
+      }
+    });
+  </script>
 </body>
 </html>

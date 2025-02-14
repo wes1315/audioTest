@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "sonara"
+version = "0.1.0"
+description = "A Python project for voice recognition and translation."
+authors = ["Wesley Guo <yuxing.g@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "sonara" }]
+
+[tool.poetry.dependencies]
+python = "3.12.1"
+websockets = "14.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "8.3.4"
+pytest-cov = "6.0.0"
+black = "25.1.0"
+isort = "6.0.0"
+
+[tool.poetry.scripts]
+backserver = "sonara.backserver:main_entrypoint"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
