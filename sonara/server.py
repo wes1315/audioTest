@@ -1,4 +1,5 @@
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+import logging
 from socketserver import TCPServer
 
 import asyncio
@@ -9,31 +10,44 @@ import threading
 import time
 import uuid
 import wave
+from dotenv import load_dotenv
 import websockets
 
+from sonara.azure_cog import AzureCognitiveService
 
 async def handle_connection(websocket):
-    print("Client connected")
-    # 为每个连接生成一个唯一的目录
+    print("client connected")
+    # generate a unique directory for each connection, for saving wav files
     connection_hash = uuid.uuid4().hex
     directory = f"/tmp/audio-{connection_hash}"
     os.makedirs(directory, exist_ok=True)
-    print(f"Audio files will be saved in: {directory}")
+    print(f"audio files will be saved in: {directory}")
 
+    # get the current event loop, and initialize the azure recognition service
+    loop = asyncio.get_running_loop()
+    azure_service = AzureCognitiveService(websocket, loop)
+    
     counter = 1
     try:
         async for message in websocket:
-            # 构造文件名，如 /tmp/audio-<hashcode>/00001.webm
+            # save each received audio chunk as a .wav file
             filename = os.path.join(directory, f"{counter:05d}.wav")
             with open(filename, "wb") as audio_file:
                 audio_file.write(message)
             receive_time = time.time()
-            print(f"Saved message {counter} ({len(message)} bytes) to {filename} at {receive_time}")
+            print(f"saved message {counter} (size: {len(message)} bytes) to {filename}, timestamp: {receive_time}")
+
+            # push the data to the azure push stream
+            azure_service.write(message)
+            
             counter += 1
 
-        print("Connection closed. All audio messages have been saved.")
+        print("connection closed, all audio messages saved")
     except websockets.ConnectionClosed:
-        print("Client disconnected")
+        print("client disconnected")
+    finally:
+        # close the azure push stream and recognizer
+        azure_service.close()
 
 
 async def start_websocket_server():
@@ -44,7 +58,7 @@ async def start_websocket_server():
 
 def start_https_server():
     handler = SimpleHTTPRequestHandler
-    server_address = ("0.0.0.0", 8080)  # HTTPS 监听 8080 端口
+    server_address = ("0.0.0.0", 8080)
     httpd = HTTPServer(server_address, handler)
 
     print("HTTPS server started at https://0.0.0.0:8080")
@@ -62,6 +76,9 @@ async def main():
 
 
 def main_entrypoint():
+    load_dotenv()
+    # logging.basicConfig(level=logging.DEBUG)
+
     import asyncio
     asyncio.run(main())
 

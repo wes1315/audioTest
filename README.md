@@ -48,8 +48,25 @@ poetry run backserver
 ```
 Adjust the command if you want to run a different module.
 
+### Running Tests
+
+Run all tests:
+```bash
+poetry run pytest
+```
+
+Run a single test with log:
+```bash
+poetry run pytest -s --log-cli-level=INFO tests/test_llm_translate.py::test_translate_text
+```
+please make sure you enable logging in your test file:
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+```
+
 ### Running Tests with Coverage
-To run the tests and generate a coverage report, use:
+Run tests with coverage:
 ```bash
 poetry run pytest --cov=sonara tests/
 ```

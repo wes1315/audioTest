@@ -8,17 +8,24 @@ packages = [{ include = "sonara" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-websockets = "14.2"
+websockets = "15.0"
+azure-cognitiveservices-speech = "^1.42.0"
+python-dotenv = "^1.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "8.3.4"
 pytest-cov = "6.0.0"
 black = "25.1.0"
 isort = "6.0.0"
+pytest-asyncio = "^0.25.3"
 
 [tool.poetry.scripts]
-backserver = "sonara.backserver:main_entrypoint"
+server = "sonara.server:main_entrypoint"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.pytest]
+log_cli = true
+log_cli_level = "DEBUG"
