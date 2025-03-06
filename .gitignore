@@ -5,3 +5,5 @@ dist/
 **/*.webm
 **/.env**
 **/*.zip
+
+.coverage
