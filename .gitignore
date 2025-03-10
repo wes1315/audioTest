@@ -7,3 +7,4 @@ dist/
 **/*.zip
 
 .coverage
+.DS_Store
