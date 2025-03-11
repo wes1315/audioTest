@@ -3,21 +3,7 @@ import json
 import asyncio
 import azure.cognitiveservices.speech as speechsdk
 from sonara.llm_translate import translate_text_with_retries
-
-
-
-async def async_translate(text: str, loop: asyncio.AbstractEventLoop) -> str:
-    """
-    异步调用翻译函数。内部通过 run_in_executor 将阻塞的 translate_text
-    调用包装为协程，以便能够 await。
-    """
-    print("START TO TRANSLATE")
-    print("translating text: %s", text)
-    # 使用 run_in_executor 将阻塞的 translate_text 调用转换为异步
-    translation = await loop.run_in_executor(None, translate_text_with_retries, text)
-    print("translation: %s", translation)
-    print("TRANSLATION DONE")
-    return translation
+from sonara.groq_translator import GroqTranslator
 
 
 class AzureCognitiveService:
@@ -34,6 +20,11 @@ class AzureCognitiveService:
         """
         self.websocket = websocket
         self.loop = loop
+
+        self.groq_translator = GroqTranslator(
+            api_key=os.getenv("GROQ_API_KEY"),
+            model=os.getenv("GROQ_MODEL")
+        )
 
         # load azure config from environment variables
         speech_key = os.getenv("AZURE_SUBSCRIPTION_KEY")
@@ -90,7 +81,11 @@ class AzureCognitiveService:
         调用异步翻译函数，并将翻译结果通过 websocket 发送给前端
         """
         try:
-            translation = await async_translate(text, self.loop)
+            translation = await self.loop.run_in_executor(
+                None, 
+                self.groq_translator.translate_with_retries, 
+                text
+            )
             if translation:
                 translated_message = json.dumps({"type": "translated", "result": translation})
                 await self.websocket.send(translated_message)

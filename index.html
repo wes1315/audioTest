@@ -27,7 +27,7 @@
     let audioStream;
     let pcmBuffer = [];      // for temporarily storing data that is not yet 1 second
     let finalBlob;           // the wav file generated from the recording
-    let socket = new WebSocket("ws://lamuguo-3700x:8765");
+    let socket = new WebSocket("ws://wesley:8765");
     
     const SAMPLE_RATE = 16000;  // 16 kHz sampling rate
     const CHUNK_SIZE = SAMPLE_RATE; // the number of samples for 1 second of audio
@@ -65,7 +65,7 @@
 
     // reconnect method (optional)
     function connectWebSocket() {
-      let ws = new WebSocket("ws://lamuguo-3700x:8765");
+      let ws = new WebSocket("ws://wesley:8765");
       ws.addEventListener("open", () => {
         console.log("Connected to WebSocket server");
       });

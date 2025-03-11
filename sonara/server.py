@@ -12,7 +12,6 @@ import uuid
 import wave
 from dotenv import load_dotenv
 import websockets
-
 from sonara.azure_cog import AzureCognitiveService
 
 async def handle_connection(websocket):
@@ -38,8 +37,7 @@ async def handle_connection(websocket):
             print(f"saved message {counter} (size: {len(message)} bytes) to {filename}, timestamp: {receive_time}")
 
             # push the data to the azure push stream
-            azure_service.write(message)
-            
+            azure_service.write(message)            
             counter += 1
 
         print("connection closed, all audio messages saved")
