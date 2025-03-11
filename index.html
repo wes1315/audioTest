@@ -1,24 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
 
-<style>
-  .speaker-tag {
-    font-weight: bold;
-    margin-right: 5px;
-  }
-  /* 为不同说话人设置不同颜色 */
-  [data-speaker="Guest-1"] { color: #4285F4; }
-  [data-speaker="Guest-2"] { color: #EA4335; }
-  [data-speaker="Guest-3"] { color: #FBBC05; }
-  [data-speaker="Guest-4"] { color: #34A853; }
-  /* 未知说话人 */
-  [data-speaker="unknown"] { color: #9AA0A6; }
-</style>
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WAV/PCM Audio Capture</title>
+
+  <style>
+    .speaker-tag {
+      font-weight: bold;
+      margin-right: 5px;
+    }
+
+    /* 为不同说话人设置不同颜色 */
+    [data-speaker="Guest-1"] {
+      color: #4285F4;
+    }
+
+    [data-speaker="Guest-2"] {
+      color: #EA4335;
+    }
+
+    [data-speaker="Guest-3"] {
+      color: #FBBC05;
+    }
+
+    [data-speaker="Guest-4"] {
+      color: #34A853;
+    }
+
+    /* 未知说话人 */
+    [data-speaker="unknown"] {
+      color: #9AA0A6;
+    }
+  </style>
+
 </head>
 
 <body>
@@ -72,11 +88,13 @@
           recognizedDiv.appendChild(speakerElement);
           recognizedDiv.scrollTop = recognizedDiv.scrollHeight;
         } else if (data.type === "translated") {
-          // 翻译结果显示（保持不变）
           const translatedDiv = document.getElementById("translatedResults");
-          translatedDiv.innerHTML += data.result + "<br/>";
+          const speakerId = data.speaker || "unknown";
+          const entry = document.createElement("div");
+          entry.setAttribute("data-speaker", speakerId);
+          entry.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
+          translatedDiv.appendChild(entry);
           translatedDiv.scrollTop = translatedDiv.scrollHeight;
-          console.log("翻译结果:", data.result);
         }
       } catch (error) {
         console.error("处理WebSocket消息时出错:", error);

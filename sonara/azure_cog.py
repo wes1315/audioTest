@@ -80,7 +80,7 @@ class AzureCognitiveService:
             })
             asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
             print(f"发送实时转录结果: {evt.result.text}, 说话人: {speaker_id}")
-    
+        
     def handle_transcribed(self, evt):
         """最终转录回调"""
         if not evt.result.text:
@@ -100,9 +100,11 @@ class AzureCognitiveService:
         })
         asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
         print(f"发送最终转录结果: {evt.result.text}, 说话人: {speaker_id}")
-        asyncio.run_coroutine_threadsafe(self.call_translation(evt.result.text), self.loop)
-
-    async def call_translation(self, text: str):
+        
+        # 传递说话人ID给翻译函数
+        asyncio.run_coroutine_threadsafe(self.call_translation(evt.result.text, speaker_id), self.loop)
+        
+    async def call_translation(self, text: str, speaker_id="unknown"):
         """
         调用异步翻译函数，并将翻译结果通过 websocket 发送给前端
         """
@@ -113,9 +115,13 @@ class AzureCognitiveService:
                 text
             )
             if translation:
-                translated_message = json.dumps({"type": "translated", "result": translation})
+                translated_message = json.dumps({
+                    "type": "translated", 
+                    "result": translation,
+                    "speaker": speaker_id
+                })
                 await self.websocket.send(translated_message)
-                print("sending translated result: {}".format(translation))
+                print(f"发送翻译结果: {translation}, 说话人: {speaker_id}")
         except Exception as e:
             print("Translation failed:", e)
 
