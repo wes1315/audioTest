@@ -1,10 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
+
+<style>
+  .speaker-tag {
+    font-weight: bold;
+    margin-right: 5px;
+  }
+  /* 为不同说话人设置不同颜色 */
+  [data-speaker="Guest-1"] { color: #4285F4; }
+  [data-speaker="Guest-2"] { color: #EA4335; }
+  [data-speaker="Guest-3"] { color: #FBBC05; }
+  [data-speaker="Guest-4"] { color: #34A853; }
+  /* 未知说话人 */
+  [data-speaker="unknown"] { color: #9AA0A6; }
+</style>
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WAV/PCM Audio Capture</title>
 </head>
+
 <body>
   <h1>WAV/PCM Audio Capture</h1>
   <button id="startButton">Start Recording</button>
@@ -19,7 +35,7 @@
   <h2>翻译结果 (Translated)</h2>
   <div id="translatedResults"></div>
 
-<script>
+  <script>
     // global variables
     let audioContext;
     let scriptProcessor;
@@ -28,7 +44,7 @@
     let pcmBuffer = [];      // for temporarily storing data that is not yet 1 second
     let finalBlob;           // the wav file generated from the recording
     let socket = new WebSocket("ws://wesley:8765");
-    
+
     const SAMPLE_RATE = 16000;  // 16 kHz sampling rate
     const CHUNK_SIZE = SAMPLE_RATE; // the number of samples for 1 second of audio
     const BUFFER_SIZE = 4096;   // the buffer size of the ScriptProcessorNode
@@ -43,23 +59,27 @@
       try {
         const data = JSON.parse(event.data);
         if (data.type === "recognizing") {
-          // real-time recognition, overwrite the display
-          document.getElementById("recognizingResults").innerText = data.result;
-          console.log("real-time recognition result:", data.result);
+          // 实时转录显示
+          const speakerInfo = data.speaker ? `[Speaker ${data.speaker}] ` : "";
+          document.getElementById("recognizingResults").innerText = speakerInfo + data.result;
+          console.log("实时转录结果:", data.result, "说话人:", data.speaker);
         } else if (data.type === "recognized") {
-          // final recognition, append to the display and auto scroll
           const recognizedDiv = document.getElementById("recognizedResults");
-          recognizedDiv.innerHTML += data.result + "<br/>";
+          const speakerId = data.speaker || "unknown";
+          const speakerElement = document.createElement("div");
+          speakerElement.setAttribute("data-speaker", speakerId);
+          speakerElement.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
+          recognizedDiv.appendChild(speakerElement);
           recognizedDiv.scrollTop = recognizedDiv.scrollHeight;
-          console.log("final recognized result:", data.result);
         } else if (data.type === "translated") {
+          // 翻译结果显示（保持不变）
           const translatedDiv = document.getElementById("translatedResults");
           translatedDiv.innerHTML += data.result + "<br/>";
           translatedDiv.scrollTop = translatedDiv.scrollHeight;
-          console.log("translated result:", data.result);
+          console.log("翻译结果:", data.result);
         }
       } catch (error) {
-        console.error("Error processing WebSocket message:", error);
+        console.error("处理WebSocket消息时出错:", error);
       }
     });
 
@@ -167,7 +187,7 @@
         console.log("Recording started");
         document.getElementById("startButton").disabled = true;
         document.getElementById("stopButton").disabled = false;
-        
+
         // clear the previous recording data
         pcmBuffer = [];
       } catch (error) {
@@ -199,4 +219,5 @@
     });
   </script>
 </body>
+
 </html>

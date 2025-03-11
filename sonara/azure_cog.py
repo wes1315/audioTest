@@ -33,48 +33,74 @@ class AzureCognitiveService:
             raise ValueError("please ensure AZURE_SUBSCRIPTION_KEY and AZURE_REGION are set in environment variables")
         
         speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
-        # if you need to set the recognition language, for example, chinese, you can enable the following line:
-        # speech_config.speech_recognition_language = "zh-CN"
-        
+        speech_config.speech_recognition_language = "en-US"  # 或者其他语言设置
+        speech_config.enable_automatic_punctuation = True
+
+        # 启用说话人分离中间结果
+        speech_config.set_property(
+            property_id=speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
+            value='true'
+        )
+
         # create a push audio stream and create an AudioConfig based on it
         self.push_stream = speechsdk.audio.PushAudioInputStream()
         audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
         
-        # create a speech recognizer (continuous recognition)
-        self.recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+        # 创建会话转录器（而不是语音识别器）
+        self.conversation_transcriber = speechsdk.transcription.ConversationTranscriber(
+            speech_config=speech_config,
+            audio_config=audio_config
+        )
         
-        # register continuous recognition events
-        self.recognizer.recognizing.connect(self.handle_recognizing)
-        self.recognizer.recognized.connect(self.handle_recognized)
-        self.recognizer.canceled.connect(lambda evt: print("recognizer canceled: {}".format(evt)))
-        self.recognizer.session_started.connect(lambda evt: print("session started"))
-        self.recognizer.session_stopped.connect(lambda evt: print("session stopped"))
+        # 注册会话转录事件
+        self.conversation_transcriber.transcribing.connect(self.handle_transcribing)
+        self.conversation_transcriber.transcribed.connect(self.handle_transcribed)  # 确保此方法存在
+        self.conversation_transcriber.canceled.connect(lambda evt: print(f"转录取消: {evt}"))
+        self.conversation_transcriber.session_started.connect(lambda evt: print("会话开始"))
+        self.conversation_transcriber.session_stopped.connect(lambda evt: print("会话结束"))
         
-        self.recognizer.start_continuous_recognition()
-        print("Azure speech recognizer started")
+        # 开始连续转录
+        self.conversation_transcriber.start_transcribing_async()
+        print("Azure conversation transcriber started")
     
-    def handle_recognizing(self, evt):
-        """
-        callback for recognizing
-        """
-        text = evt.result.text
-        if text:
-            message = json.dumps({"type": "recognizing", "result": text})
-            # in the callback thread of azure, call websocket.send by run_coroutine_threadsafe
+    def handle_transcribing(self, evt):
+        """实时转录回调"""
+        if evt.result.text:
+            # 获取说话人ID和说话人信息
+            speaker_id = "unknown"
+            if hasattr(evt.result, "speaker_id"):
+                speaker_id = evt.result.speaker_id
+            elif hasattr(evt.result, "speaker") and evt.result.speaker:
+                speaker_id = evt.result.speaker
+            
+            message = json.dumps({
+                "type": "recognizing", 
+                "result": evt.result.text,
+                "speaker": speaker_id
+            })
             asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
-            print("sending recognizing result: {}".format(text))
+            print(f"发送实时转录结果: {evt.result.text}, 说话人: {speaker_id}")
     
-    def handle_recognized(self, evt):
-        """
-        callback for recognized
-        """
-        text = evt.result.text
-        if not text:
+    def handle_transcribed(self, evt):
+        """最终转录回调"""
+        if not evt.result.text:
             return
-        message = json.dumps({"type": "recognized", "result": text})
+        
+        # 获取说话人ID
+        speaker_id = "unknown"
+        if hasattr(evt.result, "speaker_id"):
+            speaker_id = evt.result.speaker_id
+        elif hasattr(evt.result, "speaker") and evt.result.speaker:
+            speaker_id = evt.result.speaker
+        
+        message = json.dumps({
+            "type": "recognized", 
+            "result": evt.result.text,
+            "speaker": speaker_id
+        })
         asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
-        print("sending final recognized result: {}".format(text))
-        asyncio.run_coroutine_threadsafe(self.call_translation(text), self.loop)
+        print(f"发送最终转录结果: {evt.result.text}, 说话人: {speaker_id}")
+        asyncio.run_coroutine_threadsafe(self.call_translation(evt.result.text), self.loop)
 
     async def call_translation(self, text: str):
         """
@@ -104,5 +130,5 @@ class AzureCognitiveService:
         close the push stream and stop the recognizer
         """
         self.push_stream.close()
-        self.recognizer.stop_continuous_recognition()
+        self.conversation_transcriber.stop_transcribing_async()  # 使用正确的方法和对象
         print("Azure speech recognizer stopped")
