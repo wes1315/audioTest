@@ -59,61 +59,112 @@
     let audioStream;
     let pcmBuffer = [];      // for temporarily storing data that is not yet 1 second
     let finalBlob;           // the wav file generated from the recording
-    let socket = new WebSocket("ws://wesley:8765");
+    let socket = null;       // Initialize socket as null instead of connecting immediately
 
     const SAMPLE_RATE = 16000;  // 16 kHz sampling rate
     const CHUNK_SIZE = SAMPLE_RATE; // the number of samples for 1 second of audio
     const BUFFER_SIZE = 4096;   // the buffer size of the ScriptProcessorNode
 
-    // WebSocket connection event
-    socket.addEventListener("open", () => {
-      console.log("Connected to WebSocket server");
-    });
-
-    // receive WebSocket messages, and process the Azure recognition results
-    socket.addEventListener("message", (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "recognizing") {
-          // 实时转录显示
-          const speakerInfo = data.speaker ? `[Speaker ${data.speaker}] ` : "";
-          document.getElementById("recognizingResults").innerText = speakerInfo + data.result;
-          console.log("实时转录结果:", data.result, "说话人:", data.speaker);
-        } else if (data.type === "recognized") {
-          const recognizedDiv = document.getElementById("recognizedResults");
-          const speakerId = data.speaker || "unknown";
-          const speakerElement = document.createElement("div");
-          speakerElement.setAttribute("data-speaker", speakerId);
-          speakerElement.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
-          recognizedDiv.appendChild(speakerElement);
-          recognizedDiv.scrollTop = recognizedDiv.scrollHeight;
-        } else if (data.type === "translated") {
-          const translatedDiv = document.getElementById("translatedResults");
-          const speakerId = data.speaker || "unknown";
-          const entry = document.createElement("div");
-          entry.setAttribute("data-speaker", speakerId);
-          entry.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
-          translatedDiv.appendChild(entry);
-          translatedDiv.scrollTop = translatedDiv.scrollHeight;
-        }
-      } catch (error) {
-        console.error("处理WebSocket消息时出错:", error);
-      }
-    });
-
-    // reconnect method (optional)
+    // Connect to WebSocket server - will be called when Start Recording is clicked
     function connectWebSocket() {
-      let ws = new WebSocket("ws://wesley:8765");
-      ws.addEventListener("open", () => {
+      socket = new WebSocket("ws://wesley:8765");
+
+      // WebSocket connection event
+      socket.addEventListener("open", () => {
         console.log("Connected to WebSocket server");
+        // Only start audio recording after WebSocket connection is established
+        startAudioRecording();
       });
-      ws.addEventListener("error", (error) => {
-        console.error("WebSocket error:", error);
-        setTimeout(() => {
-          socket = connectWebSocket();
-        }, 1000);
+
+      // Error handling
+      socket.addEventListener("error", (error) => {
+        console.error("WebSocket connection error:", error);
+        document.getElementById("startButton").disabled = false;
+        document.getElementById("stopButton").disabled = true;
+        alert("Failed to connect to the WebSocket server. Please try again.");
       });
-      return ws;
+
+      // receive WebSocket messages, and process the Azure recognition results
+      socket.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "recognizing") {
+            // 实时转录显示
+            const speakerInfo = data.speaker ? `[Speaker ${data.speaker}] ` : "";
+            document.getElementById("recognizingResults").innerText = speakerInfo + data.result;
+            console.log("实时转录结果:", data.result, "说话人:", data.speaker);
+          } else if (data.type === "recognized") {
+            const recognizedDiv = document.getElementById("recognizedResults");
+            const speakerId = data.speaker || "unknown";
+            const speakerElement = document.createElement("div");
+            speakerElement.setAttribute("data-speaker", speakerId);
+            speakerElement.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
+            recognizedDiv.appendChild(speakerElement);
+            recognizedDiv.scrollTop = recognizedDiv.scrollHeight;
+          } else if (data.type === "translated") {
+            const translatedDiv = document.getElementById("translatedResults");
+            const speakerId = data.speaker || "unknown";
+            const entry = document.createElement("div");
+            entry.setAttribute("data-speaker", speakerId);
+            entry.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
+            translatedDiv.appendChild(entry);
+            translatedDiv.scrollTop = translatedDiv.scrollHeight;
+          }
+        } catch (error) {
+          console.error("处理WebSocket消息时出错:", error);
+        }
+      });
+
+      // Close event handling
+      socket.addEventListener("close", (event) => {
+        console.log("WebSocket connection closed", event);
+      });
+    }
+
+    // Start audio recording after WebSocket is connected
+    async function startAudioRecording() {
+      try {
+        // request microphone permission
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // create an AudioContext, and specify the sampling rate
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        mediaStreamSource = audioContext.createMediaStreamSource(audioStream);
+
+        // create a ScriptProcessorNode to capture the pcm data
+        scriptProcessor = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+        scriptProcessor.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          pcmBuffer.push(...inputData);
+
+          // when the accumulated data reaches 1 second (CHUNK_SIZE samples), process it
+          while (pcmBuffer.length >= CHUNK_SIZE) {
+            const chunk = pcmBuffer.slice(0, CHUNK_SIZE);
+            pcmBuffer = pcmBuffer.slice(CHUNK_SIZE);
+            const wavBlob = encodeWAV(chunk);
+            // send the 1 second data block
+            scheduleSend(wavBlob);
+          }
+        };
+
+        // establish the audio node connection: microphone -> processor -> AudioContext.destination (which helps activate the processor)
+        mediaStreamSource.connect(scriptProcessor);
+        scriptProcessor.connect(audioContext.destination);
+
+        console.log("Recording started");
+        document.getElementById("startButton").disabled = true;
+        document.getElementById("stopButton").disabled = false;
+
+        // clear the previous recording data
+        pcmBuffer = [];
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.close();
+          socket = null;
+        }
+        document.getElementById("startButton").disabled = false;
+        document.getElementById("stopButton").disabled = true;
+      }
     }
 
     // encode the pcm data as a wav blob (16-bit single channel)
@@ -157,7 +208,7 @@
     function scheduleSend(wavBlob) {
       setTimeout(async () => {
         try {
-          if (socket.readyState === WebSocket.OPEN) {
+          if (socket && socket.readyState === WebSocket.OPEN) {
             if (socket.bufferedAmount > 0) {
               console.log("WebSocket buffer is not empty");
             }
@@ -174,43 +225,15 @@
     }
 
     // 开始录制
-    document.getElementById("startButton").addEventListener("click", async () => {
-      try {
-        // request microphone permission
-        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // create an AudioContext, and specify the sampling rate
-        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
-        mediaStreamSource = audioContext.createMediaStreamSource(audioStream);
-
-        // create a ScriptProcessorNode to capture the pcm data
-        scriptProcessor = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
-        scriptProcessor.onaudioprocess = (event) => {
-          const inputData = event.inputBuffer.getChannelData(0);
-          pcmBuffer.push(...inputData);
-
-          // when the accumulated data reaches 1 second (CHUNK_SIZE samples), process it
-          while (pcmBuffer.length >= CHUNK_SIZE) {
-            const chunk = pcmBuffer.slice(0, CHUNK_SIZE);
-            pcmBuffer = pcmBuffer.slice(CHUNK_SIZE);
-            const wavBlob = encodeWAV(chunk);
-            // send the 1 second data block
-            scheduleSend(wavBlob);
-          }
-        };
-
-        // establish the audio node connection: microphone -> processor -> AudioContext.destination (which helps activate the processor)
-        mediaStreamSource.connect(scriptProcessor);
-        scriptProcessor.connect(audioContext.destination);
-
-        console.log("Recording started");
-        document.getElementById("startButton").disabled = true;
-        document.getElementById("stopButton").disabled = false;
-
-        // clear the previous recording data
-        pcmBuffer = [];
-      } catch (error) {
-        console.error("Error accessing microphone:", error);
-      }
+    document.getElementById("startButton").addEventListener("click", () => {
+      // Clear previous results before starting a new recording session
+      document.getElementById("recognizingResults").innerText = "";
+      
+      // Disable the start button to prevent multiple clicks
+      document.getElementById("startButton").disabled = true;
+      
+      // Connect to WebSocket first, then start recording in the onopen callback
+      connectWebSocket();
     });
 
     // stop recording
@@ -230,6 +253,12 @@
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
+      }
+      
+      // Close the WebSocket connection
+      if (socket) {
+        socket.close();
+        socket = null;
       }
 
       document.getElementById("startButton").disabled = false;
