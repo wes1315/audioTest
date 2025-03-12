@@ -33,6 +33,12 @@
     [data-speaker="unknown"] {
       color: #9AA0A6;
     }
+    
+    /* Results divs */
+    #recognizedResults, #translatedResults {
+      max-height: 300px;
+      overflow-y: auto;
+    }
   </style>
 
 </head>
@@ -64,6 +70,7 @@
     const SAMPLE_RATE = 16000;  // 16 kHz sampling rate
     const CHUNK_SIZE = SAMPLE_RATE; // the number of samples for 1 second of audio
     const BUFFER_SIZE = 4096;   // the buffer size of the ScriptProcessorNode
+    const RESERVED_LINES = 8;   // maximum number of lines to display in results
 
     // Connect to WebSocket server - will be called when Start Recording is clicked
     function connectWebSocket() {
@@ -99,16 +106,18 @@
             const speakerElement = document.createElement("div");
             speakerElement.setAttribute("data-speaker", speakerId);
             speakerElement.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
-            recognizedDiv.appendChild(speakerElement);
-            recognizedDiv.scrollTop = recognizedDiv.scrollHeight;
+            
+            // Use the limited results function instead of directly appending
+            addLimitedResult(recognizedDiv, speakerElement);
           } else if (data.type === "translated") {
             const translatedDiv = document.getElementById("translatedResults");
             const speakerId = data.speaker || "unknown";
             const entry = document.createElement("div");
             entry.setAttribute("data-speaker", speakerId);
             entry.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
-            translatedDiv.appendChild(entry);
-            translatedDiv.scrollTop = translatedDiv.scrollHeight;
+            
+            // Use the limited results function instead of directly appending
+            addLimitedResult(translatedDiv, entry);
           }
         } catch (error) {
           console.error("处理WebSocket消息时出错:", error);
@@ -224,10 +233,27 @@
       }, 0); // 异步调度
     }
 
+    // Add a result to a container, limiting to RESERVED_LINES
+    function addLimitedResult(container, element) {
+      // Add the new element
+      container.appendChild(element);
+      
+      // Check if we have more than RESERVED_LINES children
+      while (container.children.length > RESERVED_LINES) {
+        // Remove the oldest (first) element
+        container.removeChild(container.firstChild);
+      }
+      
+      // Scroll to the bottom to show newest content
+      container.scrollTop = container.scrollHeight;
+    }
+
     // 开始录制
     document.getElementById("startButton").addEventListener("click", () => {
-      // Clear previous results before starting a new recording session
+      // Clear previous results when starting a new recording session
       document.getElementById("recognizingResults").innerText = "";
+      document.getElementById("recognizedResults").innerHTML = "";
+      document.getElementById("translatedResults").innerHTML = "";
       
       // Disable the start button to prevent multiple clicks
       document.getElementById("startButton").disabled = true;
