@@ -6,12 +6,12 @@ from sonara.groq_translator import GroqTranslator
 
 @pytest.fixture
 def mock_groq_client():
-    """提供一个模拟的Groq客户端"""
+    """Provide a mock Groq client"""
     mock_client = MagicMock()
     mock_completion = MagicMock()
     mock_choice = MagicMock()
     mock_message = MagicMock()
-    mock_message.content = "<START>模拟翻译结果<END>"
+    mock_message.content = "<START>Mock translation result<END>"
     mock_choice.message = mock_message
     mock_completion.choices = [mock_choice]
     mock_client.chat.completions.create.return_value = mock_completion
@@ -20,117 +20,117 @@ def mock_groq_client():
 
 @pytest.fixture
 def translator_with_mock(mock_groq_client):
-    """创建一个带有模拟客户端的GroqTranslator实例"""
+    """Create a GroqTranslator instance with mock client"""
     translator = GroqTranslator(api_key="mock_api_key", model="mock_model")
-    translator.client = mock_groq_client  # 直接设置模拟客户端
+    translator.client = mock_groq_client  # Directly set mock client
     yield translator
 
 
 def test_translator_initialization():
-    """测试翻译器初始化"""
-    # 由于无法直接模拟构造函数，我们可以验证属性是否正确设置
+    """Test translator initialization"""
+    # Since we cannot directly mock the constructor, we can verify if attributes are set correctly
     translator = GroqTranslator(api_key="test_key", model="test_model")
     assert translator.model == "test_model"
-    # 验证client是否已创建
+    # Verify client is created
     assert translator.client is not None
 
 
 def test_translate_method(translator_with_mock, mock_groq_client):
-    """测试基本翻译方法"""
-    result = translator_with_mock.translate("你好世界")
+    """Test basic translation method"""
+    result = translator_with_mock.translate("Hello world")
     
-    # 验证是否调用了正确的API
+    # Verify if correct API was called
     mock_groq_client.chat.completions.create.assert_called_once()
     
-    # 检查模型是否正确传递
+    # Check if model was passed correctly
     args, kwargs = mock_groq_client.chat.completions.create.call_args
     assert kwargs["model"] == "mock_model"
     
-    # 验证结果
-    assert result == "模拟翻译结果"
+    # Verify result
+    assert result == "Mock translation result"
     
-    # 检查消息格式是否正确（message role应该是user）
+    # Check if message format is correct (message role should be user)
     messages = kwargs["messages"]
     assert len(messages) > 0
     assert messages[0]["role"] == "user"
-    assert "你好世界" in messages[0]["content"]
+    assert "Hello world" in messages[0]["content"]
 
 
 def test_translate_with_empty_text(translator_with_mock):
-    """测试翻译空文本"""
-    # 设置mock返回空字符串
+    """Test translating empty text"""
+    # Set mock to return empty string
     mock_client = translator_with_mock.client
     mock_message = mock_client.chat.completions.create.return_value.choices[0].message
     mock_message.content = "<START><END>"
     
     result = translator_with_mock.translate("")
-    assert result == ""  # 空文本应该返回空结果
+    assert result == ""  # Empty text should return empty result
 
 
 def test_translate_with_retries(translator_with_mock):
-    """测试带有重试逻辑的翻译"""
-    # 使用translate的模拟来测试重试逻辑
+    """Test translation with retry logic"""
+    # Use translate mock to test retry logic
     with patch.object(translator_with_mock, 'translate') as mock_translate:
-        # 第一次返回空，第二次返回成功
-        mock_translate.side_effect = ["", "模拟重试成功"]
+        # First returns empty, second returns success
+        mock_translate.side_effect = ["", "Mock retry success"]
         
-        result = translator_with_mock.translate_with_retries("测试文本", retries=3)
+        result = translator_with_mock.translate_with_retries("Test text", retries=3)
         
-        # 验证调用次数
+        # Verify call count
         assert mock_translate.call_count == 2
-        assert result == "模拟重试成功"
+        assert result == "Mock retry success"
 
 
 def test_translate_with_all_retries_failed(translator_with_mock):
-    """测试所有重试都失败的情况"""
-    # 使用translate的模拟来测试重试逻辑
+    """Test case when all retries fail"""
+    # Use translate mock to test retry logic
     with patch.object(translator_with_mock, 'translate') as mock_translate:
-        # 所有调用都返回空
+        # All calls return empty
         mock_translate.return_value = ""
         
-        result = translator_with_mock.translate_with_retries("测试文本", retries=1)
+        result = translator_with_mock.translate_with_retries("Test text", retries=1)
         
-        # 验证调用次数 - 实际实现是 range(retries) 所以调用次数是 retries
+        # Verify call count - actual implementation is range(retries) so call count is retries
         assert mock_translate.call_count == 1  # retries=1
-        # 实际实现在所有重试失败后返回错误消息，而不是None
+        # Actual implementation returns error message after all retries fail, not None
         assert result == "Translation failed with no specific error"
 
 
 def test_translate_handles_api_errors():
-    """测试如何处理API错误"""
-    # 由于translate方法没有错误处理，我们需要在测试中直接模拟GroqTranslator
-    # 创建一个新的测试接口来捕获异常
+    """Test how API errors are handled"""
+    # Since translate method has no error handling, we need to directly mock GroqTranslator in the test
+    # Create a new test interface to catch exceptions
     def patched_translate(self, text):
         try:
-            # 故意抛出异常
+            # Deliberately throw exception
             raise Exception("API error")
         except Exception as e:
-            # 模拟一个错误处理以返回空字符串
+            # Mock error handling to return empty string
             return ""
     
-    # 临时替换translate方法
+    # Temporarily replace translate method
     with patch.object(GroqTranslator, 'translate', patched_translate):
         translator = GroqTranslator(api_key="test_key", model="test_model")
-        # 应该返回空字符串而不是抛出异常
-        result = translator.translate("测试错误处理")
+        # Should return empty string instead of throwing exception
+        result = translator.translate("Test error handling")
         assert result == ""
         
-        # translate_with_retries也应该正常工作
-        result = translator.translate_with_retries("测试错误处理", retries=1)
-        # 空字符串被视为失败，所有重试失败后返回错误消息
+        # translate_with_retries should also work normally
+        result = translator.translate_with_retries("Test error handling", retries=1)
+        # Empty string is considered a failure, returns error message after all retries fail
         assert result == "Translation failed with no specific error"
 
 
 def test_response_text_parsing(translator_with_mock, mock_groq_client):
-    """测试响应文本解析逻辑"""
-    # 设置响应文本格式
+    """Test response text parsing logic"""
+    # Set response text format
     mock_message = mock_groq_client.chat.completions.create.return_value.choices[0].message
-    mock_message.content = "一些前缀文本<START>正确的翻译<END>一些后缀文本"
+    mock_message.content = "Some prefix text<START>Correct translation<END>Some suffix text"
     
-    result = translator_with_mock.translate("测试文本")
-    assert result == "正确的翻译"
+    result = translator_with_mock.translate("Test text")
+    assert result == "Correct translation"
     
-    # 测试没有标签的情况
-    mock_message.content = "没有标签的翻译"
-    result = translator_with_mock.translate("测试文本")
-    assert result == "没有标签的翻译"  # 应返回整个响应文本 
+    # Test case without tags
+    mock_message.content = "Translation without tags"
+    result = translator_with_mock.translate("Test text")
+    assert result == "Translation without tags"  # Should return entire response text 

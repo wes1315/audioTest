@@ -47,10 +47,10 @@ class AzureCognitiveService:
             raise ValueError("please ensure AZURE_SUBSCRIPTION_KEY and AZURE_REGION are set in environment variables")
         
         speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
-        speech_config.speech_recognition_language = "en-US"  # 或者其他语言设置
+        speech_config.speech_recognition_language = "en-US"  # or other language settings
         speech_config.enable_automatic_punctuation = True
 
-        # 启用说话人分离中间结果
+        # Enable speaker separation in intermediate results
         speech_config.set_property(
             property_id=speechsdk.PropertyId.SpeechServiceResponse_DiarizeIntermediateResults,
             value='true'
@@ -60,32 +60,32 @@ class AzureCognitiveService:
         self.push_stream = speechsdk.audio.PushAudioInputStream()
         audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
         
-        # 创建会话转录器（而不是语音识别器）
+        # Create a conversation transcriber (instead of speech recognizer)
         self.conversation_transcriber = speechsdk.transcription.ConversationTranscriber(
             speech_config=speech_config,
             audio_config=audio_config
         )
         
-        # 注册会话转录事件
+        # Register conversation transcription events
         self.conversation_transcriber.transcribing.connect(self.handle_transcribing)
-        self.conversation_transcriber.transcribed.connect(self.handle_transcribed)  # 确保此方法存在
-        self.conversation_transcriber.canceled.connect(lambda evt: print(f"转录取消: {evt}"))
-        self.conversation_transcriber.session_started.connect(lambda evt: print("会话开始"))
-        self.conversation_transcriber.session_stopped.connect(lambda evt: print("会话结束"))
+        self.conversation_transcriber.transcribed.connect(self.handle_transcribed)  # ensure this method exists
+        self.conversation_transcriber.canceled.connect(lambda evt: print(f"Transcription canceled: {evt}"))
+        self.conversation_transcriber.session_started.connect(lambda evt: print("Session started"))
+        self.conversation_transcriber.session_stopped.connect(lambda evt: print("Session ended"))
         
         # Test the translation queue when in debug mode
         if self.debug_mode:
             print("*** TRANSLATION QUEUE DEBUG MODE ENABLED ***")
             asyncio.run_coroutine_threadsafe(self.run_translation_test(), self.loop)
         
-        # 开始连续转录
+        # Start continuous transcription
         self.conversation_transcriber.start_transcribing_async()
         print("Azure conversation transcriber started")
     
     def handle_transcribing(self, evt):
-        """实时转录回调"""
+        """Real-time transcription callback"""
         if evt.result.text:
-            # 获取说话人ID和说话人信息
+            # Get speaker ID and speaker information
             speaker_id = "unknown"
             if hasattr(evt.result, "speaker_id"):
                 speaker_id = evt.result.speaker_id
@@ -98,14 +98,14 @@ class AzureCognitiveService:
                 "speaker": speaker_id
             })
             asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
-            print(f"发送实时转录结果: {evt.result.text}, 说话人: {speaker_id}")
+            print(f"Sending real-time transcription result: {evt.result.text}, Speaker: {speaker_id}")
         
     def handle_transcribed(self, evt):
-        """最终转录回调"""
+        """Final transcription callback"""
         if not evt.result.text:
             return
         
-        # 获取说话人ID
+        # Get speaker ID
         speaker_id = "unknown"
         if hasattr(evt.result, "speaker_id"):
             speaker_id = evt.result.speaker_id
@@ -118,7 +118,7 @@ class AzureCognitiveService:
             "speaker": speaker_id
         })
         asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
-        print(f"发送最终转录结果: {evt.result.text}, 说话人: {speaker_id}")
+        print(f"Sending final transcription result: {evt.result.text}, Speaker: {speaker_id}")
         
         # Generate a short unique ID for this translation task
         task_id = str(uuid.uuid4())[:8]
@@ -208,7 +208,7 @@ class AzureCognitiveService:
                         print(f"[{task_id}] Sending translated message: {translated_message}")
                         try:
                             await self.websocket.send(translated_message)
-                            print(f"[{task_id}] 发送翻译结果 (took {duration:.2f}s): {translation}, 说话人: {speaker_id}")
+                            print(f"[{task_id}] Sent translation result (took {duration:.2f}s): {translation}, Speaker: {speaker_id}")
                             
                             # Record for debugging
                             if task_id in self.translation_times:
@@ -238,7 +238,7 @@ class AzureCognitiveService:
     
     async def call_translation(self, text: str, speaker_id="unknown"):
         """
-        调用异步翻译函数，并将翻译结果通过 websocket 发送给前端
+        Call async translation function and send translation results to frontend via websocket
         """
         # This method is kept for backward compatibility
         # Now it just calls enqueue_translation

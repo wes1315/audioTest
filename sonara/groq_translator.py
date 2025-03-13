@@ -5,18 +5,18 @@ from groq import Groq
 class GroqTranslator:
     def __init__(self, api_key, model: str = "llama-3.3-70b-versatile"):
         """
-        初始化 GroqTranslator 类，创建 Groq 客户端。
-        :param model: 要使用的模型名称，默认为 "llama-3.3-70b-versatile"
+        Initialize the GroqTranslator class, create a Groq client.
+        :param model: The name of the model to use, default is "llama-3.3-70b-versatile"
         """
         self.client = Groq(api_key=api_key)
         self.model = model
 
     def translate(self, text: str) -> str:
         """
-        调用 Groq 对话接口来翻译给定文本，并返回翻译结果。
-        翻译内容在返回结果的 <START> 和 <END> 标签之间。
-        :param text: 待翻译的文本字符串
-        :return: 翻译后的文本
+        Call the Groq conversation interface to translate the given text and return the translation result.
+        The translation content is between the <START> and <END> tags in the returned result.
+        :param text: The text string to be translated
+        :return: The translated text
         """
         if not text or text.strip() == "":
             print("Warning: Empty text provided for translation")
@@ -31,7 +31,7 @@ class GroqTranslator:
 <END>
 """
         try:
-            # 调用 Groq 对话接口
+            # Call the Groq conversation interface
             chat_completion = self.client.chat.completions.create(
                 messages=[
                     {
@@ -42,11 +42,11 @@ class GroqTranslator:
                 model=self.model,
             )
 
-            # 获取模型返回的完整响应文本
+            # Get the complete response text from the model
             response_text = chat_completion.choices[0].message.content
             print(f"Raw translation response: '{response_text}'")
 
-            # 解析 <START> 和 <END> 之间的翻译内容
+            # Parse the translation content between <START> and <END>
             start_tag = "<START>"
             end_tag = "<END>"
             start_idx = response_text.find(start_tag)

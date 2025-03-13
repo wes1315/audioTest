@@ -11,16 +11,16 @@ import azure.cognitiveservices.speech as speechsdk
 from sonara.azure_cog import AzureCognitiveService
 
 
-# 模拟environment变量设置
+# Mock environment variable setup
 @pytest.fixture
 def mock_env_vars():
-    """创建测试环境变量"""
+    """Create test environment variables"""
     os.environ["AZURE_SUBSCRIPTION_KEY"] = "test-speech-key"
     os.environ["AZURE_REGION"] = "test-region"
     os.environ["GROQ_API_KEY"] = "test-groq-key"
     os.environ["GROQ_MODEL"] = "test-groq-model"
     yield
-    # 测试后清理
+    # Cleanup after test
     if "AZURE_SUBSCRIPTION_KEY" in os.environ:
         del os.environ["AZURE_SUBSCRIPTION_KEY"]
     if "AZURE_REGION" in os.environ:
@@ -31,11 +31,11 @@ def mock_env_vars():
         del os.environ["GROQ_MODEL"]
 
 
-# 模拟Azure语音SDK
+# Mock Azure Speech SDK
 @pytest.fixture
 def mock_azure_sdk():
-    """模拟Azure SDK组件"""
-    # 创建模拟的speechsdk模块及其组件
+    """Mock Azure SDK components"""
+    # Create mock speechsdk module and its components
     mock_sdk = MagicMock()
     mock_sdk.SpeechConfig = MagicMock()
     mock_sdk.audio = MagicMock()
@@ -47,42 +47,42 @@ def mock_azure_sdk():
     mock_sdk.transcription.ConversationTranscriber = MagicMock()
     mock_sdk.PropertyId = MagicMock()
     
-    # 创建模拟的transcriber实例
+    # Create mock transcriber instance
     mock_transcriber = MagicMock()
     mock_sdk.transcription.ConversationTranscriber.return_value = mock_transcriber
     
-    # 创建模拟的push stream
+    # Create mock push stream
     mock_push_stream = MagicMock()
     mock_sdk.audio.PushAudioInputStream.return_value = mock_push_stream
     
-    # 使用patch将模拟的speechsdk替换为真实的speechsdk
+    # Use patch to replace mock speechsdk with real speechsdk
     with patch('sonara.azure_cog.speechsdk', mock_sdk):
         yield mock_sdk
 
 
-# 模拟GroqTranslator
+# Mock GroqTranslator
 @pytest.fixture
 def mock_groq_translator():
-    """模拟GroqTranslator"""
+    """Mock GroqTranslator"""
     with patch("sonara.azure_cog.GroqTranslator") as mock_translator:
         translator_instance = MagicMock()
         mock_translator.return_value = translator_instance
         
-        # 设置翻译方法的返回值
-        translator_instance.translate.return_value = "模拟翻译结果"
-        # 确保translate_with_retries可以被同步调用
-        translator_instance.translate_with_retries = MagicMock(return_value="模拟翻译结果（带重试）")
+        # Set return value of translate method
+        translator_instance.translate.return_value = "Mock translation result"
+        # Ensure translate_with_retries can be called synchronously
+        translator_instance.translate_with_retries = MagicMock(return_value="Mock translation result (with retries)")
         
         yield translator_instance
 
 
-# 模拟websocket
+# Mock websocket
 @pytest_asyncio.fixture
 async def mock_websocket():
-    """模拟websocket连接"""
+    """Mock websocket connection"""
     # Create a regular MagicMock instead of AsyncMock
     mock_ws = MagicMock()
-    mock_ws.open = True  # 设置为打开状态
+    mock_ws.open = True  # Set to open state
     
     # Create a mock for send method that returns a completed future when called
     mock_send = MagicMock()
@@ -105,10 +105,10 @@ async def mock_websocket():
 
 @pytest_asyncio.fixture
 async def azure_service(mock_env_vars, mock_azure_sdk, mock_groq_translator, mock_websocket):
-    """创建一个完整的AzureCognitiveService测试实例"""
+    """Create a complete AzureCognitiveService test instance"""
     from sonara.azure_cog import AzureCognitiveService
 
-    # 修复 enqueue_translation 方法以返回正确的 task_id
+    # Fix enqueue_translation method to return correct task_id
     async def mock_enqueue_translation(self, text, speaker_id="unknown", task_id=None):
         if task_id is None:
             task_id = str(uuid.uuid4())[:8]
@@ -122,7 +122,7 @@ async def azure_service(mock_env_vars, mock_azure_sdk, mock_groq_translator, moc
         await self.translation_queue.put((text, speaker_id, task_id))
         return task_id
 
-    # 修复 close 方法，使其同步而非异步
+    # Fix close method to be synchronous rather than asynchronous
     def mock_close(self):
         if hasattr(self, 'translation_worker_task') and self.translation_worker_task:
             print("Cancelling translation worker task...")
@@ -137,7 +137,7 @@ async def azure_service(mock_env_vars, mock_azure_sdk, mock_groq_translator, moc
         
         print("Azure speech recognizer stopped")
     
-    # 修复 run_translation_test 方法的签名以匹配实际使用
+    # Fix run_translation_test method signature to match actual usage
     async def mock_run_translation_test(self):
         print("\n*** STARTING TRANSLATION QUEUE TEST ***")
         test_sentences = [
@@ -152,25 +152,25 @@ async def azure_service(mock_env_vars, mock_azure_sdk, mock_groq_translator, moc
         
         await self.translation_queue.join()
     
-    # 修复 call_translation 方法以调用 enqueue_translation
+    # Fix call_translation method to call enqueue_translation
     async def mock_call_translation(self, text, speaker_id="unknown"):
         return await self.enqueue_translation(text, speaker_id)
     
-    # 修复 write 方法以接受正确的参数
+    # Fix write method to accept correct parameters
     def mock_write(self, data):
         self.push_stream.write(data)
     
-    # 添加 is_websocket_connected 方法
+    # Add is_websocket_connected method
     async def mock_is_websocket_connected(self):
-        """检查websocket连接状态"""
+        """Check websocket connection status"""
         if hasattr(self, 'websocket') and self.websocket:
             return getattr(self.websocket, 'open', False)
         return False
     
-    # 创建一个运行中的事件循环
+    # Create a running event loop
     loop = asyncio.get_event_loop()
     
-    # 替换实际方法
+    # Replace actual methods
     with patch.object(AzureCognitiveService, 'enqueue_translation', mock_enqueue_translation), \
          patch.object(AzureCognitiveService, 'close', mock_close), \
          patch.object(AzureCognitiveService, 'run_translation_test', mock_run_translation_test), \
@@ -178,26 +178,26 @@ async def azure_service(mock_env_vars, mock_azure_sdk, mock_groq_translator, moc
          patch.object(AzureCognitiveService, 'write', mock_write), \
          patch.object(AzureCognitiveService, 'is_websocket_connected', mock_is_websocket_connected):
         
-        # 创建服务实例
+        # Create service instance
         service = AzureCognitiveService(mock_websocket, loop)
         
-        # 设置翻译器
+        # Set translator
         service.groq_translator = mock_groq_translator
         
-        # 确保push_stream属性存在
+        # Ensure push_stream attribute exists
         service.push_stream = mock_azure_sdk.audio.PushAudioInputStream.return_value
         
-        # 确保conversation_transcriber属性存在
+        # Ensure conversation_transcriber attribute exists
         service.conversation_transcriber = mock_azure_sdk.transcription.ConversationTranscriber.return_value
         
         yield service
         
-        # 清理（不再尝试await）
+        # Cleanup (no longer try await)
         service.close()
 
 
 class MockRecognitionResult:
-    """模拟识别结果对象"""
+    """Mock recognition result object"""
     def __init__(self, text="", speaker=None, speaker_id=None):
         self.text = text
         self.speaker = speaker
@@ -205,14 +205,14 @@ class MockRecognitionResult:
 
 
 class MockRecognitionEvent:
-    """模拟识别事件对象"""
+    """Mock recognition event object"""
     def __init__(self, text="", speaker=None, speaker_id=None):
         self.result = MockRecognitionResult(text, speaker, speaker_id)
 
 
 @pytest.mark.asyncio
 async def test_init_initializes_correctly(azure_service):
-    """测试初始化函数是否正确设置服务"""
+    """Test initialization function to correctly set up service"""
     assert azure_service.loop is not None
     assert azure_service.websocket is not None
     assert azure_service.groq_translator is not None
@@ -231,67 +231,67 @@ def mock_run_coroutine_threadsafe(coro, loop):
 
 @pytest.mark.asyncio
 async def test_handle_transcribing(azure_service, mock_websocket):
-    """测试实时转录处理逻辑"""
-    # 重置之前的调用
+    """Test real-time transcription processing logic"""
+    # Reset previous calls
     # mock_websocket.send.reset_mock() - not needed with our new implementation
     
-    # 创建模拟事件
-    event = MockRecognitionEvent(text="实时转录测试")
+    # Create mock event
+    event = MockRecognitionEvent(text="Real-time transcription test")
     
-    # 设置speaker属性
+    # Set speaker attribute
     event.result.speaker = "test-speaker"
     
-    # 模拟json序列化
-    expected_message = '{"type": "recognizing", "result": "实时转录测试", "speaker": "test-speaker"}'
+    # Mock json serialization
+    expected_message = '{"type": "recognizing", "result": "Real-time transcription test", "speaker": "test-speaker"}'
         
     with patch("asyncio.run_coroutine_threadsafe", side_effect=mock_run_coroutine_threadsafe) as mock_run, \
             patch("json.dumps", return_value=expected_message):
         
-        # 调用处理函数
+        # Call processing function
         azure_service.handle_transcribing(event)
         
-        # 验证是否调用了run_coroutine_threadsafe
+        # Verify whether run_coroutine_threadsafe was called
         assert mock_run.call_count > 0
 
 
 @pytest.mark.asyncio
 async def test_handle_transcribing_with_empty_text(azure_service, mock_websocket):
-    """测试实时转录处理空文本的情况"""
-    # 创建模拟事件（空文本）
+    """Test real-time transcription processing with empty text"""
+    # Create mock event (empty text)
     event = MockRecognitionEvent(text="")
     
-    # 模拟run_coroutine_threadsafe
+    # Mock run_coroutine_threadsafe
     with patch("asyncio.run_coroutine_threadsafe", side_effect=mock_run_coroutine_threadsafe) as mock_run:
-        # 调用处理函数
+        # Call processing function
         azure_service.handle_transcribing(event)
         
-        # 验证不应调用run_coroutine_threadsafe（因为文本为空）
+        # Verify should not call run_coroutine_threadsafe (because text is empty)
         mock_run.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_handle_transcribing_with_speaker_id(azure_service, mock_websocket):
-    """测试实时转录处理speaker_id的场景"""
-    # 创建模拟事件
-    event = MockRecognitionEvent(text="实时转录测试")
+    """Test real-time transcription processing with speaker_id scenario"""
+    # Create mock event
+    event = MockRecognitionEvent(text="Real-time transcription test")
     
-    # 设置speaker_id属性
+    # Set speaker_id attribute
     event.result.speaker_id = "test-speaker-id"
     
-    # 模拟json序列化
-    expected_message = '{"type": "recognizing", "result": "实时转录测试", "speaker": "test-speaker-id"}'
+    # Mock json serialization
+    expected_message = '{"type": "recognizing", "result": "Real-time transcription test", "speaker": "test-speaker-id"}'
     
     with patch("asyncio.run_coroutine_threadsafe", side_effect=mock_run_coroutine_threadsafe) as mock_run, \
          patch("json.dumps", return_value=expected_message):
         
-        # 调用处理函数
+        # Call processing function
         azure_service.handle_transcribing(event)
         
-        # 验证是否调用了run_coroutine_threadsafe
+        # Verify whether run_coroutine_threadsafe was called
         assert mock_run.call_count > 0
         
-        # 验证调用run_coroutine_threadsafe时的参数
-        # 第一个参数应该是websocket.send协程
+        # Verify call to run_coroutine_threadsafe parameters
+        # First parameter should be websocket.send coroutine
         call_args = mock_run.call_args[0]
         assert len(call_args) == 2
         assert call_args[1] == azure_service.loop
@@ -299,17 +299,17 @@ async def test_handle_transcribing_with_speaker_id(azure_service, mock_websocket
 
 @pytest.mark.asyncio
 async def test_handle_transcribed(azure_service, mock_websocket):
-    """测试最终转录处理逻辑"""
-    # 创建模拟事件
-    event = MockRecognitionEvent(text="最终转录测试")
+    """Test final transcription processing logic"""
+    # Create mock event
+    event = MockRecognitionEvent(text="Final transcription test")
     
-    # 设置speaker属性
+    # Set speaker attribute
     event.result.speaker = "test-speaker"
     
-    # 模拟json序列化
-    expected_message = '{"type": "recognized", "result": "最终转录测试", "speaker": "test-speaker"}'
+    # Mock json serialization
+    expected_message = '{"type": "recognized", "result": "Final transcription test", "speaker": "test-speaker"}'
     
-    # 模拟future和回调
+    # Mock future and callback
     mock_future = MagicMock()
     mock_future.add_done_callback = MagicMock()
     
@@ -320,107 +320,107 @@ async def test_handle_transcribed(azure_service, mock_websocket):
          patch("json.dumps", return_value=expected_message), \
          patch.object(azure_service, 'enqueue_translation', sync_mock_enqueue):
         
-        # 设置第一次调用返回mock_future（为了测试回调）
+        # Set first call return mock_future (for testing callback)
         mock_run.side_effect = [mock_future, mock_future]
         
-        # 调用处理函数
+        # Call processing function
         azure_service.handle_transcribed(event)
         
-        # 验证是否调用了run_coroutine_threadsafe两次
-        # 一次用于发送websocket消息，一次用于enqueue_translation
+        # Verify whether run_coroutine_threadsafe was called twice
+        # Once for sending websocket message, once for enqueue_translation
         assert mock_run.call_count >= 2
         
-        # 验证是否添加了回调
+        # Verify whether callback was added
         mock_future.add_done_callback.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_handle_transcribed_with_empty_text(azure_service, mock_websocket):
-    """测试最终转录处理空文本的情况"""
-    # 创建模拟事件（空文本）
+    """Test final transcription processing with empty text"""
+    # Create mock event (empty text)
     event = MockRecognitionEvent(text="")
     
-    # 模拟run_coroutine_threadsafe
+    # Mock run_coroutine_threadsafe
     with patch("asyncio.run_coroutine_threadsafe", side_effect=mock_run_coroutine_threadsafe) as mock_run:
-        # 调用处理函数
+        # Call processing function
         azure_service.handle_transcribed(event)
         
-        # 验证不应调用run_coroutine_threadsafe（因为文本为空）
+        # Verify should not call run_coroutine_threadsafe (because text is empty)
         mock_run.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_enqueue_translation(azure_service):
-    """测试翻译入队功能"""
-    # 使用带有task_id的方法
-    task_id = await azure_service.enqueue_translation("测试翻译文本", "test-speaker")
+    """Test translation enqueue functionality"""
+    # Use method with task_id
+    task_id = await azure_service.enqueue_translation("Test translation text", "test-speaker")
     
-    # 验证任务是否已入队
+    # Verify task is queued
     assert azure_service.translation_queue.qsize() == 1
     
-    # 验证task_id是否正确生成
+    # Verify task_id is correctly generated
     assert task_id is not None
     assert task_id in azure_service.translation_times
     
-    # 检查时间戳信息是否正确记录
+    # Check timestamp information is correctly recorded
     assert "enqueued_at" in azure_service.translation_times[task_id]
-    assert azure_service.translation_times[task_id]["text"] == "测试翻译文本"
+    assert azure_service.translation_times[task_id]["text"] == "Test translation text"
     assert azure_service.translation_times[task_id]["speaker_id"] == "test-speaker"
 
 
 @pytest.mark.asyncio
 async def test_enqueue_translation_with_custom_id(azure_service):
-    """测试使用自定义ID的翻译入队功能"""
+    """Test translation enqueue functionality with custom ID"""
     custom_id = "custom-task-id"
     
-    # 使用自定义task_id调用方法
-    task_id = await azure_service.enqueue_translation("自定义ID的测试", "test-speaker", custom_id)
+    # Use custom task_id method call
+    task_id = await azure_service.enqueue_translation("Custom ID test", "test-speaker", custom_id)
     
-    # 验证返回的是否是自定义ID
+    # Verify return is custom ID
     assert task_id == custom_id
     assert custom_id in azure_service.translation_times
     
-    # 检查时间戳信息是否正确记录
+    # Check timestamp information is correctly recorded
     assert "enqueued_at" in azure_service.translation_times[custom_id]
-    assert azure_service.translation_times[custom_id]["text"] == "自定义ID的测试"
+    assert azure_service.translation_times[custom_id]["text"] == "Custom ID test"
     assert azure_service.translation_times[custom_id]["speaker_id"] == "test-speaker"
 
 
 @pytest.mark.asyncio
 async def test_translation_worker(azure_service, mock_websocket, mock_groq_translator):
-    """测试翻译工作线程的功能"""
-    # 重置mock的调用记录
+    """Test translation worker thread functionality"""
+    # Reset mock calls
     mock_websocket.send.reset_mock()
     mock_groq_translator.translate_with_retries.reset_mock()
     
-    # 设置翻译结果
-    mock_groq_translator.translate_with_retries.return_value = "模拟翻译结果"
+    # Set translation result
+    mock_groq_translator.translate_with_retries.return_value = "Mock translation result"
     
-    # 准备测试数据
+    # Prepare test data
     task_id = "test-worker-id"
-    test_text = "测试翻译工作线程"
+    test_text = "Test translation worker thread"
     speaker_id = "test-speaker"
     
-    # 创建预期的JSON消息
+    # Create expected JSON message
     expected_message = json.dumps({
         "type": "translated", 
-        "result": "模拟翻译结果", 
+        "result": "Mock translation result", 
         "speaker": speaker_id
     })
     
-    # 添加任务到队列
+    # Add task to queue
     await azure_service.translation_queue.put((test_text, speaker_id, task_id))
     
-    # 记录任务到translation_times
+    # Record task to translation_times
     azure_service.translation_times[task_id] = {
         "text": test_text,
         "speaker_id": speaker_id,
         "enqueued_at": time.time()
     }
     
-    # 手动调用translation_worker方法一次来处理队列中的任务
-    # 使用asyncio.wait_for确保在一定时间内完成，避免无限等待
-    # 由于worker是一个无限循环，我们模拟调用一次get/process/task_done流程
+    # Manually call translation_worker method once to process queue tasks
+    # Use asyncio.wait_for to ensure completion within a certain time, avoid infinite wait
+    # Since worker is an infinite loop, we simulate call once get/process/task_done process
     with patch.object(azure_service.translation_queue, 'get', 
                      new_callable=AsyncMock, 
                      return_value=(test_text, speaker_id, task_id)), \
@@ -429,7 +429,7 @@ async def test_translation_worker(azure_service, mock_websocket, mock_groq_trans
                      new_callable=AsyncMock, 
                      return_value=True):
                      
-        # 将worker方法的无限循环改为执行一次就退出
+        # Change worker method infinite loop to execute once and exit
         async def run_worker_once():
             # Get the task
             text, speaker, task_id = await azure_service.translation_queue.get()
@@ -453,44 +453,44 @@ async def test_translation_worker(azure_service, mock_websocket, mock_groq_trans
         # Execute the worker function once
         await run_worker_once()
     
-    # 验证翻译方法是否被调用
+    # Verify translation method is called
     mock_groq_translator.translate_with_retries.assert_called_with(test_text)
     
-    # 验证是否发送了正确的消息
+    # Verify whether correct message is sent
     mock_websocket.send.assert_called_with(expected_message)
 
 
 @pytest.mark.asyncio
 async def test_translation_worker_with_exception(azure_service, mock_websocket, mock_groq_translator):
-    """测试翻译工作线程在遇到异常时的行为"""
-    # 重置mock的调用记录
+    """Test translation worker thread behavior when exception occurs"""
+    # Reset mock calls
     mock_websocket.send.reset_mock()
     
-    # 设置翻译抛出异常
-    mock_groq_translator.translate_with_retries.side_effect = Exception("模拟翻译错误")
+    # Set translation to raise exception
+    mock_groq_translator.translate_with_retries.side_effect = Exception("Mock translation error")
     
-    # 准备测试数据
+    # Prepare test data
     task_id = "error-task-id"
-    test_text = "异常测试"
+    test_text = "Exception test"
     speaker_id = "test-speaker"
     
-    # 添加任务到队列
+    # Add task to queue
     await azure_service.translation_queue.put((test_text, speaker_id, task_id))
     
-    # 记录任务到translation_times
+    # Record task to translation_times
     azure_service.translation_times[task_id] = {
         "text": test_text,
         "speaker_id": speaker_id,
         "enqueued_at": time.time()
     }
     
-    # 手动调用一次worker流程，处理异常情况
+    # Manually call once worker process to handle exception case
     with patch.object(azure_service.translation_queue, 'get', 
                      new_callable=AsyncMock, 
                      return_value=(test_text, speaker_id, task_id)), \
          patch.object(azure_service.translation_queue, 'task_done') as mock_task_done:
                      
-        # 将worker方法的无限循环改为执行一次就退出
+        # Change worker method infinite loop to execute once and exit
         async def run_worker_once_with_exception():
             try:
                 # Get the task
@@ -518,41 +518,41 @@ async def test_translation_worker_with_exception(azure_service, mock_websocket, 
         # Execute the worker function once
         await run_worker_once_with_exception()
     
-    # 验证翻译方法是否被调用
+    # Verify translation method is called
     mock_groq_translator.translate_with_retries.assert_called_with(test_text)
     
-    # 验证websocket.send没有被调用 (因为有异常)
+    # Verify websocket.send not called (because of exception)
     mock_websocket.send.assert_not_called()
     
-    # 验证task_done被调用以确保队列处理完成
+    # Verify task_done called to ensure queue processing completed
     mock_task_done.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_translation_worker_with_closed_websocket(azure_service, mock_websocket, mock_groq_translator):
-    """测试翻译工作线程在websocket已关闭时的行为"""
-    # 重置mock的调用记录
+    """Test translation worker thread behavior when websocket is closed"""
+    # Reset mock calls
     mock_websocket.send.reset_mock()
     
-    # 将websocket设置为关闭状态
+    # Set websocket to closed state
     mock_websocket.open = False
     
-    # 准备测试数据
+    # Prepare test data
     task_id = "closed-ws-task-id"
-    test_text = "Websocket已关闭测试"
+    test_text = "Websocket closed test"
     speaker_id = "test-speaker"
     
-    # 添加任务到队列
+    # Add task to queue
     await azure_service.translation_queue.put((test_text, speaker_id, task_id))
     
-    # 记录任务到translation_times
+    # Record task to translation_times
     azure_service.translation_times[task_id] = {
         "text": test_text,
         "speaker_id": speaker_id,
         "enqueued_at": time.time()
     }
     
-    # 手动调用一次worker流程，处理websocket关闭的情况
+    # Manually call once worker process to handle websocket closed case
     with patch.object(azure_service.translation_queue, 'get', 
                      new_callable=AsyncMock, 
                      return_value=(test_text, speaker_id, task_id)), \
@@ -561,7 +561,7 @@ async def test_translation_worker_with_closed_websocket(azure_service, mock_webs
                      new_callable=AsyncMock, 
                      return_value=False):
                      
-        # 将worker方法的无限循环改为执行一次就退出
+        # Change worker method infinite loop to execute once and exit
         async def run_worker_once_with_closed_websocket():
             # Get the task
             text, speaker, task_id = await azure_service.translation_queue.get()
@@ -584,90 +584,90 @@ async def test_translation_worker_with_closed_websocket(azure_service, mock_webs
         # Execute the worker function once
         await run_worker_once_with_closed_websocket()
     
-    # 验证翻译方法是否被调用
+    # Verify translation method is called
     mock_groq_translator.translate_with_retries.assert_called_with(test_text)
     
-    # 验证websocket.send没有被调用 (因为连接已关闭)
+    # Verify websocket.send not called (because connection is closed)
     mock_websocket.send.assert_not_called()
     
-    # 验证task_done被调用以确保队列处理完成
+    # Verify task_done called to ensure queue processing completed
     mock_task_done.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_call_translation(azure_service, mock_groq_translator):
-    """测试call_translation函数"""
-    # 设置mock以直接调用enqueue_translation
+    """Test call_translation function"""
+    # Set mock to directly call enqueue_translation
     with patch.object(azure_service, 'enqueue_translation', new_callable=AsyncMock) as mock_enqueue:
         mock_enqueue.return_value = "test-id"
         
-        # 调用函数
-        result = await azure_service.call_translation("测试单次翻译", "test-speaker")
+        # Call function
+        result = await azure_service.call_translation("Test single translation", "test-speaker")
         
-        # 验证是否调用了enqueue_translation
-        mock_enqueue.assert_called_with("测试单次翻译", "test-speaker")
+        # Verify whether enqueue_translation was called
+        mock_enqueue.assert_called_with("Test single translation", "test-speaker")
         
-        # 验证返回值
+        # Verify return value
         assert result == "test-id"
 
 
 @pytest.mark.asyncio
 async def test_run_translation_test(azure_service, mock_groq_translator):
-    """测试运行翻译测试功能"""
-    # 使用mock以跟踪enqueue_translation调用
+    """Test running translation test functionality"""
+    # Use mock to track enqueue_translation calls
     with patch.object(azure_service, 'enqueue_translation', new_callable=AsyncMock) as mock_enqueue:
         mock_enqueue.return_value = "test-id"
         
-        # 调用函数，不传递参数
+        # Call function, no parameters
         await azure_service.run_translation_test()
         
-        # 验证enqueue_translation被调用4次（测试句子有4个）
+        # Verify enqueue_translation called 4 times (test sentences have 4)
         assert mock_enqueue.call_count == 4
 
 
 @pytest.mark.asyncio
 async def test_write(azure_service, mock_azure_sdk):
-    """测试write方法"""
-    # 重置之前的调用
+    """Test write method"""
+    # Reset previous calls
     azure_service.push_stream.write.reset_mock()
     
-    # 调用write方法，传递二进制数据
+    # Call write method, pass binary data
     test_data = b"test audio data"
     azure_service.write(test_data)
     
-    # 验证是否调用了push_stream.write
+    # Verify whether push_stream.write was called
     azure_service.push_stream.write.assert_called_with(test_data)
 
 
 @pytest.mark.asyncio
 async def test_close(azure_service):
-    """测试close方法"""
-    # 修改测试策略：我们不再直接检查worker任务是否已取消
-    # 而是检查close方法是否正确执行了需要的操作
+    """Test close method"""
+    # Modify test strategy: we no longer directly check whether worker task is cancelled
+    # Instead, check whether close method correctly executed required operations
     original_worker_task = azure_service.translation_worker_task
     
-    # 模拟cancel方法，确保它被调用
+    # Mock cancel method to ensure it's called
     with patch.object(original_worker_task, 'cancel') as mock_cancel:
-        # 调用close方法
+        # Call close method
         azure_service.close()
         
-        # 验证cancel方法被调用
+        # Verify cancel method was called
         mock_cancel.assert_called_once()
         
-        # 验证push_stream和recognizer的关闭方法被调用
+        # Verify push_stream and recognizer close methods were called
         azure_service.push_stream.close.assert_called_once()
         azure_service.conversation_transcriber.stop_transcribing_async.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_is_websocket_connected_with_open_attribute(azure_service, mock_websocket):
-    """测试is_websocket_connected方法（使用open属性）"""
-    # 正常情况，websocket有open=True属性
+    """Test is_websocket_connected method (using open attribute)"""
+    # Normal case, websocket has open=True attribute
     mock_websocket.open = True
     result = await azure_service.is_websocket_connected()
     assert result is True
     
-    # 关闭的情况
+    # Closed case
     mock_websocket.open = False
     result = await azure_service.is_websocket_connected()
     assert result is False
@@ -675,8 +675,8 @@ async def test_is_websocket_connected_with_open_attribute(azure_service, mock_we
 
 @pytest.mark.asyncio
 async def test_is_websocket_connected_with_closed_attribute(mock_env_vars):
-    """测试is_websocket_connected方法（使用closed属性）"""
-    # 不使用原始的方法，而是创建一个简单的测试函数
+    """Test is_websocket_connected method (using closed attribute)"""
+    # Do not use original method, instead create a simple test function
     async def test_method(self):
         if not hasattr(self, 'websocket'):
             return False
@@ -689,23 +689,23 @@ async def test_is_websocket_connected_with_closed_attribute(mock_env_vars):
         
         return False
     
-    # 创建一个只有closed属性而没有open属性的websocket
+    # Create a websocket with only closed attribute and no open attribute
     mock_ws = MagicMock()
     if hasattr(mock_ws, 'open'):
-        delattr(mock_ws, 'open')  # 删除open属性
-    mock_ws.closed = False  # 表示连接打开
+        delattr(mock_ws, 'open')  # Delete open attribute
+    mock_ws.closed = False  # Represent open connection
     
-    # 创建服务
+    # Create service
     with patch.object(AzureCognitiveService, '__init__', return_value=None), \
          patch.object(AzureCognitiveService, 'is_websocket_connected', test_method):
         service = AzureCognitiveService.__new__(AzureCognitiveService)
         service.websocket = mock_ws
         
-        # 测试连接打开时
+        # Test open connection
         result = await service.is_websocket_connected()
         assert result is True
         
-        # 测试连接关闭时
+        # Test closed connection
         mock_ws.closed = True
         result = await service.is_websocket_connected()
         assert result is False
@@ -713,31 +713,31 @@ async def test_is_websocket_connected_with_closed_attribute(mock_env_vars):
 
 @pytest.mark.asyncio
 async def test_is_websocket_connected_with_state_attribute(mock_env_vars):
-    """测试is_websocket_connected方法（使用state.value属性）"""
-    # 创建一个有state属性的websocket
+    """Test is_websocket_connected method (using state.value attribute)"""
+    # Create a websocket with state attribute
     mock_ws = MagicMock()
     if hasattr(mock_ws, 'open'):
-        delattr(mock_ws, 'open')  # 删除open属性
+        delattr(mock_ws, 'open')  # Delete open attribute
     if hasattr(mock_ws, 'closed'):
-        delattr(mock_ws, 'closed')  # 确保没有closed属性
+        delattr(mock_ws, 'closed')  # Ensure no closed attribute
     if hasattr(mock_ws, 'custom_is_open'):
-        delattr(mock_ws, 'custom_is_open')  # 确保没有custom_is_open属性
+        delattr(mock_ws, 'custom_is_open')  # Ensure no custom_is_open attribute
     
-    # 创建state对象和value属性
+    # Create state object and value attribute
     state = MagicMock()
     mock_ws.state = state
     
-    # 创建服务
+    # Create service
     with patch.object(AzureCognitiveService, '__init__', return_value=None) as mock_init:
         service = AzureCognitiveService.__new__(AzureCognitiveService)
         service.websocket = mock_ws
         
-        # 测试state.value = 1 (OPEN)
+        # Test state.value = 1 (OPEN)
         state.value = 1
         result = await service.is_websocket_connected()
         assert result is True
         
-        # 测试state.value != 1 (CLOSED)
+        # Test state.value != 1 (CLOSED)
         state.value = 0
         result = await service.is_websocket_connected()
         assert result is False
@@ -745,97 +745,97 @@ async def test_is_websocket_connected_with_state_attribute(mock_env_vars):
 
 @pytest.mark.asyncio
 async def test_is_websocket_connected_with_no_websocket(mock_env_vars):
-    """测试is_websocket_connected方法（无websocket属性的情况）"""
-    # 创建服务
+    """Test is_websocket_connected method (no websocket attribute case)"""
+    # Create service
     with patch.object(AzureCognitiveService, '__init__', return_value=None) as mock_init:
         service = AzureCognitiveService.__new__(AzureCognitiveService)
-        # 确保websocket属性不存在
+        # Ensure websocket attribute does not exist
         if hasattr(service, 'websocket'):
             delattr(service, 'websocket')
         
-        # 测试没有websocket的情况
+        # Test no websocket case
         result = await service.is_websocket_connected()
         assert result is False
 
 
 @pytest.mark.asyncio
 async def test_is_websocket_connected_with_exception(mock_env_vars):
-    """测试is_websocket_connected方法（发生异常的情况）"""
-    # 使用一个常规的MagicMock，但设置特定方法抛出异常
+    """Test is_websocket_connected method (exception case)"""
+    # Use a regular MagicMock, but set specific method to raise exception
     mock_ws = MagicMock()
     
-    # 定义一个简单的方法测试
+    # Define a simple method test
     async def test_method(self):
         if not hasattr(self, 'websocket'):
             return False
         
         try:
-            # 访问任何websocket的属性都会抛出异常
+            # Accessing any websocket attribute will raise exception
             if self.websocket.open:
-                pass  # 这个分支永远不会被执行，因为open会抛出异常
+                pass  # This branch will never be executed because open will raise exception
             return True
         except Exception:
-            # 异常应该被捕获
+            # Exception should be caught
             return False
     
-    # 创建服务
+    # Create service
     with patch.object(AzureCognitiveService, '__init__', return_value=None), \
          patch.object(AzureCognitiveService, 'is_websocket_connected', test_method):
         service = AzureCognitiveService.__new__(AzureCognitiveService)
         service.websocket = mock_ws
         
-        # 设置获取open属性抛出异常
-        type(mock_ws).__getattribute__ = MagicMock(side_effect=Exception("测试异常"))
+        # Set get open attribute to raise exception
+        type(mock_ws).__getattribute__ = MagicMock(side_effect=Exception("Test exception"))
         
-        # 测试访问属性抛出异常的情况
+        # Test accessing attribute raise exception case
         result = await service.is_websocket_connected()
         assert result is False
 
 
 @pytest.mark.asyncio
 async def test_init_with_debug_mode(mock_env_vars, mock_azure_sdk, mock_groq_translator, mock_websocket):
-    """测试调试模式下的初始化"""
-    # 设置环境变量开启调试模式
+    """Test initialization in debug mode"""
+    # Set environment variable to enable debug mode
     os.environ["DEBUG_TRANSLATION"] = "true"
     
     try:
-        # 创建事件循环
+        # Create event loop
         loop = asyncio.get_event_loop()
         
-        # 模拟run_translation_test方法
+        # Mock run_translation_test method
         with patch.object(AzureCognitiveService, 'run_translation_test', new_callable=AsyncMock) as mock_test, \
              patch("asyncio.run_coroutine_threadsafe") as mock_run_threadsafe:
-            # 创建服务实例
+            # Create service instance
             service = AzureCognitiveService(mock_websocket, loop)
             
-            # 验证调试模式是否被正确设置
+            # Verify debug mode is correctly set
             assert service.debug_mode is True
             
-            # 验证是否尝试调用run_translation_test
+            # Verify whether attempt to call run_translation_test
             mock_run_threadsafe.assert_called()
     finally:
-        # 清理环境变量
+        # Cleanup environment variable
         if "DEBUG_TRANSLATION" in os.environ:
             del os.environ["DEBUG_TRANSLATION"]
 
 
 @pytest.mark.asyncio
 async def test_translation_worker_with_websocket_send_exception(azure_service, mock_websocket, mock_groq_translator):
-    """测试翻译工作线程在发送websocket消息时遇到异常的情况"""
-    # 准备测试数据
+    """Test translation worker thread behavior when exception occurs when sending websocket message"""
+    # Prepare test data
     task_id = "websocket-exception-id"
-    test_text = "测试websocket发送异常"
+    test_text = "Test websocket send exception"
     speaker_id = "test-speaker"
     
-    # 设置翻译结果
-    mock_groq_translator.translate_with_retries.return_value = "模拟翻译结果"
+    # Set translation result
+    mock_groq_translator.translate_with_retries.return_value = "Mock translation result"
     
-    # Create a custom implementation of the worker function that simulates a websocket exception
+    # Create custom implementation of worker function that simulates a websocket exception
     async def custom_worker_implementation():
-        # Simulate the translation worker logic but with a controlled websocket exception
+        # Simulate translation worker logic but with a controlled websocket exception
         try:
             # Simulate successful translation
-            translation = "模拟翻译结果"
+            translation = "Mock translation result"
             
             # Simulate websocket connected check
             websocket_connected = True
@@ -849,10 +849,10 @@ async def test_translation_worker_with_websocket_send_exception(azure_service, m
                 })
                 
                 # Simulate websocket send exception
-                raise Exception("模拟websocket发送异常")
+                raise Exception("Mock websocket send exception")
         except Exception as e:
             # This should be caught and handled
-            print(f"[{task_id}] 捕获了发送websocket消息的异常：{e}")
+            print(f"[{task_id}] Captured websocket send exception: {e}")
             return True  # Exception was handled correctly
         
         return False  # Exception was not triggered
@@ -866,70 +866,70 @@ async def test_translation_worker_with_websocket_send_exception(azure_service, m
 
 @pytest.mark.asyncio
 async def test_close_with_debug_mode(azure_service):
-    """测试在调试模式下关闭服务"""
-    # 设置调试模式并准备一些处理过的翻译
+    """Test closing service in debug mode"""
+    # Set debug mode and prepare some processed translations
     azure_service.debug_mode = True
     azure_service.processed_translations = [
-        {"text": "测试文本", "translation": "模拟翻译", "duration": 0.1},
-        {"text": "另一个测试", "translation": "另一个翻译", "duration": 0.2}
+        {"text": "Test text", "translation": "Mock translation", "duration": 0.1},
+        {"text": "Another test", "translation": "Another translation", "duration": 0.2}
     ]
     
-    # 模拟worker task
+    # Mock worker task
     original_worker_task = azure_service.translation_worker_task
     
-    # 模拟cancel方法，确保它被调用
+    # Mock cancel method to ensure it's called
     with patch.object(original_worker_task, 'cancel') as mock_cancel:
-        # 调用close方法
+        # Call close method
         azure_service.close()
         
-        # 验证cancel方法被调用
+        # Verify cancel method was called
         mock_cancel.assert_called_once()
         
-        # 验证push_stream和recognizer的关闭方法被调用
+        # Verify push_stream and recognizer close methods were called
         azure_service.push_stream.close.assert_called_once()
         azure_service.conversation_transcriber.stop_transcribing_async.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_translation_worker_unexpected_exception(azure_service, mock_groq_translator):
-    """测试translation_worker方法中的意外异常处理"""
-    # 准备测试数据
+    """Test unexpected exception handling in translation_worker method"""
+    # Prepare test data
     task_id = "unexpected-exception-id"
-    test_text = "测试意外异常"
+    test_text = "Test unexpected exception"
     speaker_id = "test-speaker"
     
-    # 添加任务到队列
+    # Add task to queue
     await azure_service.translation_queue.put((test_text, speaker_id, task_id))
     
-    # 模拟一个会在translation_worker方法中抛出意外异常的情况
+    # Mock a situation that will raise unexpected exception in translation_worker method
     with patch.object(azure_service, 'translation_queue') as mock_queue:
-        # 设置get方法抛出非CancelledError的异常
-        mock_queue.get = AsyncMock(side_effect=Exception("模拟意外异常"))
+        # Set get method to raise non-CancelledError exception
+        mock_queue.get = AsyncMock(side_effect=Exception("Mock unexpected exception"))
         mock_queue.qsize = MagicMock(return_value=1)
         
-        # 手动调用worker方法
+        # Manually call worker method
         try:
             await azure_service.translation_worker()
         except Exception:
-            # 我们期望意外异常被捕获，而不是继续传播
-            assert False, "意外异常应该被捕获而不是继续传播"
+            # We expect unexpected exception to be caught, not continue propagating
+            assert False, "Unexpected exception should be caught instead of continuing propagation"
 
 
 @pytest.mark.asyncio
 async def test_enqueue_translation_with_queue_full():
-    """测试翻译队列已满时的行为"""
-    # 创建一个模拟的AzureCognitiveService实例
+    """Test behavior when translation queue is full"""
+    # Create a mock AzureCognitiveService instance
     service = MagicMock()
     service.translation_queue = MagicMock()
     service.translation_times = {}
     
-    # 使put方法抛出QueueFull异常
+    # Make put method raise QueueFull exception
     async def mock_put(*args, **kwargs):
         raise asyncio.QueueFull()
     
     service.translation_queue.put = mock_put
     
-    # 实现一个可能会处理QueueFull的enqueue_translation方法
+    # Implement an enqueue_translation method that might handle QueueFull
     async def custom_enqueue_translation(text, speaker_id="unknown", task_id=None):
         if task_id is None:
             task_id = "test-task-id"
@@ -941,35 +941,35 @@ async def test_enqueue_translation_with_queue_full():
                 "enqueued_at": time.time()
             }
             
-            # 这里会抛出QueueFull异常
+            # This will raise QueueFull exception
             await service.translation_queue.put((text, speaker_id, task_id))
             
         except asyncio.QueueFull:
-            # 处理队列已满情况
-            service.translation_times[task_id]["error"] = "队列已满，无法添加新任务"
+            # Handle queue full case
+            service.translation_times[task_id]["error"] = "Queue is full, cannot add new task"
             print(f"Queue is full, cannot add task {task_id}")
         
         return task_id
     
-    # 调用方法
-    task_id = await custom_enqueue_translation("测试队列已满", "test-speaker")
+    # Call method
+    task_id = await custom_enqueue_translation("Test queue full", "test-speaker")
     
-    # 验证是否正确处理了异常
+    # Verify whether correctly handled exception
     assert task_id in service.translation_times
     assert "error" in service.translation_times[task_id]
-    assert "队列已满" in service.translation_times[task_id]["error"]
+    assert "Queue is full" in service.translation_times[task_id]["error"]
 
 
 @pytest.mark.asyncio
 async def test_handle_transcribed_with_future_callback(azure_service, mock_websocket):
-    """测试handle_transcribed方法的future回调处理"""
-    # 创建模拟事件
-    event = MockRecognitionEvent(text="测试回调处理", speaker="test-speaker")
+    """Test handle_transcribed method future callback processing"""
+    # Create mock event
+    event = MockRecognitionEvent(text="Test callback processing", speaker="test-speaker")
     
-    # 重置之前的调用
+    # Reset previous calls
     mock_websocket.send.reset_mock()
     
-    # 模拟run_coroutine_threadsafe和Future
+    # Mock run_coroutine_threadsafe and Future
     mock_future = MagicMock()
     mock_future.add_done_callback = MagicMock()
 
@@ -978,144 +978,144 @@ async def test_handle_transcribed_with_future_callback(azure_service, mock_webso
     
     with patch("asyncio.run_coroutine_threadsafe") as mock_run_threadsafe, \
          patch.object(azure_service, 'enqueue_translation', sync_mock_enqueue):
-        # 设置mock_run_threadsafe返回mock_future
+        # Set mock_run_threadsafe return mock_future
         mock_run_threadsafe.return_value = mock_future
         
-        # 调用handle_transcribed
+        # Call handle_transcribed
         azure_service.handle_transcribed(event)
         
-        # 验证是否添加了回调
+        # Verify whether callback was added
         mock_future.add_done_callback.assert_called_once()
         
-        # 获取回调函数
+        # Get callback function
         callback = mock_future.add_done_callback.call_args[0][0]
         
-        # 模拟future完成，调用回调
+        # Mock future completion, call callback
         callback(mock_future)
         
-        # 模拟future失败的情况
-        mock_future.result.side_effect = Exception("模拟任务失败")
+        # Mock future failure case
+        mock_future.result.side_effect = Exception("Mock task failure")
         callback(mock_future)
         
-        # 无需断言，只要不抛异常就算成功
+        # No assertion needed, as long as no exception is thrown
 
 
 @pytest.mark.asyncio
 async def test_run_translation_test_full_coverage(azure_service):
-    """测试run_translation_test方法的完整功能"""
-    # 清空已处理的翻译列表
+    """Test full functionality of run_translation_test method"""
+    # Clear processed translations list
     azure_service.processed_translations = []
     
-    # 准备测试数据
+    # Prepare test data
     test_id = "test-run-1"
     original_enqueue = azure_service.enqueue_translation
     
-    # 模拟翻译处理的结果
+    # Mock translation processing result
     translation_result = {
         "text": "Test sentence",
         "speaker_id": "test-speaker",
         "enqueued_at": time.time(),
         "completed_at": time.time() + 0.5,
         "duration": 0.5,
-        "translation": "翻译结果"
+        "translation": "Translation result"
     }
     
-    # 模拟enqueue_translation方法以便我们可以控制结果
+    # Mock enqueue_translation method so we can control result
     async def mock_enqueue(text, speaker_id, task_id=None):
         if task_id is None:
             task_id = test_id
         
-        # 添加处理后的翻译结果
+        # Add processed translation result
         azure_service.translation_times[task_id] = translation_result
         azure_service.processed_translations.append(translation_result)
         
-        # 模拟任务入队
+        # Mock task enqueue
         await azure_service.translation_queue.put((text, speaker_id, task_id))
         return task_id
     
-    # Create a queue.join replacement that returns a completed future
+    # Create queue.join replacement that returns a completed future
     def mock_join():
         future = asyncio.Future()
         future.set_result(None)  # Complete the future immediately
         return future
     
     try:
-        # 替换enqueue_translation方法
+        # Replace enqueue_translation method
         azure_service.enqueue_translation = mock_enqueue
         
-        # 模拟翻译队列的join方法
+        # Mock translation queue join method
         original_join = azure_service.translation_queue.join
         azure_service.translation_queue.join = mock_join
         
-        # 运行测试
+        # Run test
         await azure_service.run_translation_test()
         
-        # 验证处理了多个翻译
+        # Verify processed multiple translations
         assert len(azure_service.processed_translations) > 0
     finally:
-        # 恢复原始方法
+        # Restore original method
         azure_service.enqueue_translation = original_enqueue
         azure_service.translation_queue.join = original_join
 
 
 @pytest.mark.asyncio
 async def test_close_with_error_handling():
-    """测试close方法的错误处理"""
-    # 创建一个模拟的AzureCognitiveService实例
+    """Test error handling in close method"""
+    # Create a mock AzureCognitiveService instance
     service = MagicMock()
     
-    # 模拟translation_worker_task并让它抛出异常
+    # Mock translation_worker_task and let it raise exception
     task_mock = MagicMock()
-    task_mock.cancel = MagicMock(side_effect=Exception("模拟取消任务异常"))
+    task_mock.cancel = MagicMock(side_effect=Exception("Mock cancel task exception"))
     service.translation_worker_task = task_mock
     
-    # 模拟push_stream并让它抛出异常
+    # Mock push_stream and let it raise exception
     stream_mock = MagicMock()
-    stream_mock.close = MagicMock(side_effect=Exception("模拟关闭stream异常"))
+    stream_mock.close = MagicMock(side_effect=Exception("Mock close stream exception"))
     service.push_stream = stream_mock
     
-    # 模拟conversation_transcriber并让它抛出异常
+    # Mock conversation_transcriber and let it raise exception
     transcriber_mock = MagicMock()
-    transcriber_mock.stop_transcribing_async = MagicMock(side_effect=Exception("模拟停止转录异常"))
+    transcriber_mock.stop_transcribing_async = MagicMock(side_effect=Exception("Mock stop transcriber exception"))
     service.conversation_transcriber = transcriber_mock
     
-    # 实现一个处理所有异常的close方法
+    # Implement a close method that handles all exceptions
     def custom_close(self):
         errors = []
         
-        # 尝试取消translation_worker_task
+        # Try cancel translation_worker_task
         if hasattr(self, 'translation_worker_task') and self.translation_worker_task:
             try:
                 print("Cancelling translation worker task...")
                 self.translation_worker_task.cancel()
                 print("Translation worker task cancelled")
             except Exception as e:
-                errors.append(f"取消任务时出错: {e}")
+                errors.append(f"Cancel task error: {e}")
         
-        # 尝试关闭push_stream
+        # Try close push_stream
         if hasattr(self, 'push_stream'):
             try:
                 self.push_stream.close()
             except Exception as e:
-                errors.append(f"关闭push_stream时出错: {e}")
+                errors.append(f"Close push_stream error: {e}")
         
-        # 尝试停止conversation_transcriber
+        # Try stop conversation_transcriber
         if hasattr(self, 'conversation_transcriber'):
             try:
                 self.conversation_transcriber.stop_transcribing_async()
             except Exception as e:
-                errors.append(f"停止transcriber时出错: {e}")
+                errors.append(f"Stop transcriber error: {e}")
         
         print("Azure speech recognizer stopped")
         
-        # 如果有错误，记录它们但不抛出异常
+        # If there are errors, record them but do not throw exception
         if errors:
-            print(f"关闭过程中出现{len(errors)}个错误: {', '.join(errors)}")
+            print(f"Closed with {len(errors)} errors: {', '.join(errors)}")
     
-    # 调用close方法
+    # Call close method
     custom_close(service)
     
-    # 验证是否调用了所有方法，即使它们抛出异常
+    # Verify whether all methods were called, even if they throw exception
     service.translation_worker_task.cancel.assert_called_once()
     service.push_stream.close.assert_called_once()
     service.conversation_transcriber.stop_transcribing_async.assert_called_once()
@@ -1123,29 +1123,29 @@ async def test_close_with_error_handling():
 
 @pytest.mark.asyncio
 async def test_translation_worker_with_empty_result(azure_service, mock_websocket, mock_groq_translator):
-    """测试翻译工作线程处理空翻译结果"""
-    # 重置mock的调用记录
+    """Test translation worker processing with empty translation result"""
+    # Reset mock calls
     mock_websocket.send.reset_mock()
     
-    # 设置翻译结果为空字符串
+    # Set translation result to empty string
     mock_groq_translator.translate_with_retries.return_value = ""
     
-    # 准备测试数据
+    # Prepare test data
     task_id = "empty-result-id"
-    test_text = "测试空翻译结果"
+    test_text = "Test empty translation result"
     speaker_id = "test-speaker"
     
-    # 添加任务到队列
+    # Add task to queue
     await azure_service.translation_queue.put((test_text, speaker_id, task_id))
     
-    # 记录任务到translation_times
+    # Record task to translation_times
     azure_service.translation_times[task_id] = {
         "text": test_text,
         "speaker_id": speaker_id,
         "enqueued_at": time.time()
     }
     
-    # 手动调用一次worker流程，处理空结果
+    # Manually call once worker process to handle empty result
     with patch.object(azure_service.translation_queue, 'get', 
                      new_callable=AsyncMock, 
                      return_value=(test_text, speaker_id, task_id)), \
@@ -1154,7 +1154,7 @@ async def test_translation_worker_with_empty_result(azure_service, mock_websocke
                      new_callable=AsyncMock, 
                      return_value=True):
                      
-        # 将worker方法的无限循环改为执行一次就退出
+        # Change worker method infinite loop to execute once and exit
         async def run_worker_once_with_empty_result():
             # Get the task
             text, speaker, task_id = await azure_service.translation_queue.get()
@@ -1164,13 +1164,13 @@ async def test_translation_worker_with_empty_result(azure_service, mock_websocke
                 None, mock_groq_translator.translate_with_retries, text
             )
             
-            # 检查翻译结果是否为空
-            print(f"翻译结果: '{translation}'")
+            # Check translation result is empty
+            print(f"Translation result: '{translation}'")
             
             # Check if websocket is connected
             websocket_connected = await azure_service.is_websocket_connected()
             
-            # 不应该发送空消息
+            # Should not send empty message
             if translation and websocket_connected:
                 translated_message = json.dumps({
                     "type": "translated", 
@@ -1179,7 +1179,7 @@ async def test_translation_worker_with_empty_result(azure_service, mock_websocke
                 })
                 await mock_websocket.send(translated_message)
             else:
-                print("收到空翻译结果，不发送websocket消息")
+                print("Received empty translation result, not sending websocket message")
             
             # Mark task as done
             azure_service.translation_queue.task_done()
@@ -1187,8 +1187,8 @@ async def test_translation_worker_with_empty_result(azure_service, mock_websocke
         # Execute the worker function once
         await run_worker_once_with_empty_result()
     
-    # 验证翻译方法是否被调用
+    # Verify translation method is called
     mock_groq_translator.translate_with_retries.assert_called_with(test_text)
     
-    # 验证没有发送空消息
+    # Verify no empty message sent
     mock_websocket.send.assert_not_called() 

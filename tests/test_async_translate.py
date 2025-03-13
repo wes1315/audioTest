@@ -2,13 +2,13 @@ import asyncio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-# 使用模拟对象进行测试
+# Use mock objects for testing
 @pytest.mark.asyncio
 async def test_async_translation():
     """
-    测试异步翻译功能 - 使用模拟翻译类和WebSocket
+    Test asynchronous translation functionality - using mock translator class and WebSocket
     """
-    # 创建模拟的翻译器和WebSocket
+    # Create mock translator and WebSocket
     mock_translator = MagicMock()
     mock_translator.translate_with_retries = MagicMock(return_value="Translated text")
     
@@ -16,12 +16,12 @@ async def test_async_translation():
     mock_websocket.open = True
     mock_websocket.send = AsyncMock()
     
-    # 创建一个简化的异步翻译函数
+    # Create a simplified asynchronous translation function
     async def async_translate(text, speaker_id="test"):
-        # 模拟翻译过程
+        # Simulate translation process
         translation = mock_translator.translate_with_retries(text)
         
-        # 发送结果
+        # Send result
         if translation:
             message = {
                 "type": "translated",
@@ -32,11 +32,11 @@ async def test_async_translation():
         
         return translation
     
-    # 测试翻译函数
+    # Test translation function
     test_text = "Hello world"
     result = await async_translate(test_text)
     
-    # 验证结果
+    # Verify results
     assert result == "Translated text"
     assert mock_translator.translate_with_retries.called
     assert mock_translator.translate_with_retries.call_args[0][0] == test_text
