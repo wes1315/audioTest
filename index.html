@@ -1,92 +1,311 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Capture</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WAV/PCM Audio Capture</title>
+
+  <style>
+    .speaker-tag {
+      font-weight: bold;
+      margin-right: 5px;
+    }
+
+    /* 为不同说话人设置不同颜色 */
+    [data-speaker="Guest-1"] {
+      color: #4285F4;
+    }
+
+    [data-speaker="Guest-2"] {
+      color: #EA4335;
+    }
+
+    [data-speaker="Guest-3"] {
+      color: #FBBC05;
+    }
+
+    [data-speaker="Guest-4"] {
+      color: #34A853;
+    }
+
+    /* 未知说话人 */
+    [data-speaker="unknown"] {
+      color: #9AA0A6;
+    }
+    
+    /* Results divs */
+    #recognizedResults, #translatedResults {
+      max-height: 300px;
+      overflow-y: auto;
+    }
+  </style>
+
 </head>
+
 <body>
-    <h1>Audio Capture</h1>
-    <button id="startButton">Start Recording</button>
-    <button id="stopButton" disabled>Stop Recording</button>
-    <button id="playButton" disabled>Play Recording</button>
-    <audio id="audioPlayer" controls></audio>
+  <h1>WAV/PCM Audio Capture</h1>
+  <button id="startButton">Start Recording</button>
+  <button id="stopButton" disabled>Stop Recording</button>
 
-    <script>
-        let mediaRecorder;
-        let audioChunks = [];
-        const socket = new WebSocket("wss://lamuguo-3700x:8765");
+  <h2>Real-time recognizing results</h2>
+  <div id="recognizingResults"></div>
 
-        // Handle WebSocket connection
-        socket.addEventListener("open", () => {
-            console.log("Connected to WebSocket server");
-        });
+  <h2>Final recognized results</h2>
+  <div id="recognizedResults"></div>
 
-        // Start recording
-        document.getElementById("startButton").addEventListener("click", async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+  <h2>翻译结果 (Translated)</h2>
+  <div id="translatedResults"></div>
 
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        audioChunks.push(event.data);
+  <script>
+    // global variables
+    let audioContext;
+    let scriptProcessor;
+    let mediaStreamSource;
+    let audioStream;
+    let pcmBuffer = [];      // for temporarily storing data that is not yet 1 second
+    let finalBlob;           // the wav file generated from the recording
+    let socket = null;       // Initialize socket as null instead of connecting immediately
 
-                        // Convert Blob to ArrayBuffer for WebSocket
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            const arrayBuffer = reader.result;
-                            console.log("Sending audio data length: " + arrayBuffer.byteLength);
-                            socket.send(arrayBuffer); // Send audio data to the backend
-                        };
-                        reader.readAsArrayBuffer(event.data);
-                    }
-                };
+    const SAMPLE_RATE = 16000;  // 16 kHz sampling rate
+    const CHUNK_SIZE = SAMPLE_RATE; // the number of samples for 1 second of audio
+    const BUFFER_SIZE = 4096;   // the buffer size of the ScriptProcessorNode
+    const RESERVED_LINES = 8;   // maximum number of lines to display in results
 
-                mediaRecorder.start(1000); // Capture audio every 1 second
-                console.log("Recording started");
+    // Connect to WebSocket server - will be called when Start Recording is clicked
+    function connectWebSocket() {
+      console.log("Connecting to WebSocket server...");
+      socket = new WebSocket("ws://wesley:8765");
 
-                // Disable/Enable buttons
-                document.getElementById("startButton").disabled = true;
-                document.getElementById("stopButton").disabled = false;
-                document.getElementById("playButton").disabled = true;
-            } catch (error) {
-                console.error("Error accessing microphone:", error);
-            }
-        });
+      // WebSocket connection event
+      socket.addEventListener("open", () => {
+        console.log("Connected to WebSocket server");
+        // Only start audio recording after WebSocket connection is established
+        startAudioRecording();
+      });
 
-        // Stop recording and store in localStorage
-        document.getElementById("stopButton").addEventListener("click", () => {
-            mediaRecorder.stop();
-            console.log("Recording stopped");
+      // Error handling
+      socket.addEventListener("error", (error) => {
+        console.error("WebSocket connection error:", error);
+        document.getElementById("startButton").disabled = false;
+        document.getElementById("stopButton").disabled = true;
+        alert("Failed to connect to the WebSocket server. Please try again.");
+      });
 
-            // Merge audio chunks into a single Blob
-            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      // receive WebSocket messages, and process the Azure recognition results
+      socket.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("Received WebSocket message:", data);
+          
+          if (data.type === "recognizing") {
+            // 实时转录显示
+            const speakerInfo = data.speaker ? `[Speaker ${data.speaker}] ` : "";
+            document.getElementById("recognizingResults").innerText = speakerInfo + data.result;
+            console.log("实时转录结果:", data.result, "说话人:", data.speaker);
+          } else if (data.type === "recognized") {
+            const recognizedDiv = document.getElementById("recognizedResults");
+            const speakerId = data.speaker || "unknown";
+            const speakerElement = document.createElement("div");
+            speakerElement.setAttribute("data-speaker", speakerId);
+            speakerElement.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
             
-            // Convert Blob to Base64 and store in localStorage
-            const reader = new FileReader();
-            reader.onload = () => {
-                localStorage.setItem("savedAudio", reader.result);
-                console.log("Audio saved to localStorage");
-            };
-            reader.readAsDataURL(audioBlob);
+            // Use the limited results function instead of directly appending
+            addLimitedResult(recognizedDiv, speakerElement);
+          } else if (data.type === "translated") {
+            console.log("Received translation:", data.result, "for speaker:", data.speaker);
+            const translatedDiv = document.getElementById("translatedResults");
+            const speakerId = data.speaker || "unknown";
+            const entry = document.createElement("div");
+            entry.setAttribute("data-speaker", speakerId);
+            entry.innerHTML = `<span class="speaker-tag">[Speaker ${speakerId}]</span> ${data.result}`;
+            
+            // Use the limited results function instead of directly appending
+            addLimitedResult(translatedDiv, entry);
+            console.log("Added translation to display:", data.result);
+          } else {
+            console.log("Unknown message type:", data.type);
+          }
+        } catch (error) {
+          console.error("处理WebSocket消息时出错:", error, "Raw message:", event.data);
+        }
+      });
 
-            // Enable play button
-            document.getElementById("playButton").disabled = false;
-        });
+      // Close event handling
+      socket.addEventListener("close", (event) => {
+        console.log("WebSocket connection closed", event);
+        // If the recording is still in progress, try to stop it
+        if (document.getElementById("stopButton").disabled === false) {
+          console.log("Recording was in progress, stopping it due to WebSocket closure");
+          document.getElementById("stopButton").click();
+        }
+      });
+    }
 
-        // Play the recorded audio
-        document.getElementById("playButton").addEventListener("click", () => {
-            const savedAudio = localStorage.getItem("savedAudio");
-            if (savedAudio) {
-                const audioPlayer = document.getElementById("audioPlayer");
-                audioPlayer.src = savedAudio;
-                audioPlayer.play();
-                console.log("Playing recorded audio");
-            } else {
-                console.log("No audio found in localStorage");
+    // Start audio recording after WebSocket is connected
+    async function startAudioRecording() {
+      try {
+        // request microphone permission
+        audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // create an AudioContext, and specify the sampling rate
+        audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+        mediaStreamSource = audioContext.createMediaStreamSource(audioStream);
+
+        // create a ScriptProcessorNode to capture the pcm data
+        scriptProcessor = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+        scriptProcessor.onaudioprocess = (event) => {
+          const inputData = event.inputBuffer.getChannelData(0);
+          pcmBuffer.push(...inputData);
+
+          // when the accumulated data reaches 1 second (CHUNK_SIZE samples), process it
+          while (pcmBuffer.length >= CHUNK_SIZE) {
+            const chunk = pcmBuffer.slice(0, CHUNK_SIZE);
+            pcmBuffer = pcmBuffer.slice(CHUNK_SIZE);
+            const wavBlob = encodeWAV(chunk);
+            // send the 1 second data block
+            scheduleSend(wavBlob);
+          }
+        };
+
+        // establish the audio node connection: microphone -> processor -> AudioContext.destination (which helps activate the processor)
+        mediaStreamSource.connect(scriptProcessor);
+        scriptProcessor.connect(audioContext.destination);
+
+        console.log("Recording started");
+        document.getElementById("startButton").disabled = true;
+        document.getElementById("stopButton").disabled = false;
+
+        // clear the previous recording data
+        pcmBuffer = [];
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.close();
+          socket = null;
+        }
+        document.getElementById("startButton").disabled = false;
+        document.getElementById("stopButton").disabled = true;
+      }
+    }
+
+    // encode the pcm data as a wav blob (16-bit single channel)
+    function encodeWAV(pcmData) {
+      const buffer = new ArrayBuffer(44 + pcmData.length * 2);
+      const view = new DataView(buffer);
+
+      // WAV header
+      writeString(view, 0, "RIFF"); // RIFF header
+      view.setUint32(4, 36 + pcmData.length * 2, true); // File size
+      writeString(view, 8, "WAVE"); // WAVE format
+      writeString(view, 12, "fmt "); // fmt chunk
+      view.setUint32(16, 16, true); // Subchunk1 size (16 for PCM)
+      view.setUint16(20, 1, true);  // Audio format (1 表示 PCM)
+      view.setUint16(22, 1, true);  // single channel
+      view.setUint32(24, SAMPLE_RATE, true);  // sampling rate
+      view.setUint32(28, SAMPLE_RATE * 2, true); // byte rate = sampling rate * 2 (2 bytes per sample)
+      view.setUint16(32, 2, true);  // Block align = 2
+      view.setUint16(34, 16, true); // Bits per sample
+      writeString(view, 36, "data"); // data chunk
+      view.setUint32(40, pcmData.length * 2, true); // Data size
+
+      // write the pcm data, and convert to 16-bit integers
+      let offset = 44;
+      for (let i = 0; i < pcmData.length; i++, offset += 2) {
+        const sample = Math.max(-1, Math.min(1, pcmData[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+      }
+
+      return new Blob([view], { type: "audio/wav" });
+    }
+
+    // auxiliary function: write a string to a DataView
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    // send the wav blob to the WebSocket
+    function scheduleSend(wavBlob) {
+      setTimeout(async () => {
+        try {
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            if (socket.bufferedAmount > 0) {
+              console.log("WebSocket buffer is not empty");
             }
-        });
-    </script>
+            const arrayBuffer = await wavBlob.arrayBuffer();
+            socket.send(arrayBuffer);
+            console.log("Sent 1 second of audio data at", Date.now());
+          } else {
+            console.error("WebSocket is not open");
+          }
+        } catch (error) {
+          console.error("Error sending audio data:", error);
+        }
+      }, 0); // 异步调度
+    }
+
+    // Add a result to a container, limiting to RESERVED_LINES
+    function addLimitedResult(container, element) {
+      console.log("Adding element to container:", container.id, "Element:", element.outerHTML);
+      
+      // Add the new element
+      container.appendChild(element);
+      
+      // Check if we have more than RESERVED_LINES children
+      while (container.children.length > RESERVED_LINES) {
+        // Remove the oldest (first) element
+        container.removeChild(container.firstChild);
+      }
+      
+      // Scroll to the bottom to show newest content
+      container.scrollTop = container.scrollHeight;
+      console.log(`Container ${container.id} now has ${container.children.length} elements`);
+    }
+
+    // 开始录制
+    document.getElementById("startButton").addEventListener("click", () => {
+      // Clear previous results when starting a new recording session
+      document.getElementById("recognizingResults").innerText = "";
+      document.getElementById("recognizedResults").innerHTML = "";
+      document.getElementById("translatedResults").innerHTML = "";
+      
+      // Disable the start button to prevent multiple clicks
+      document.getElementById("startButton").disabled = true;
+      
+      // Connect to WebSocket first, then start recording in the onopen callback
+      connectWebSocket();
+    });
+
+    // stop recording
+    document.getElementById("stopButton").addEventListener("click", () => {
+      if (scriptProcessor) {
+        scriptProcessor.disconnect();
+        scriptProcessor = null;
+      }
+      if (mediaStreamSource) {
+        mediaStreamSource.disconnect();
+        mediaStreamSource = null;
+      }
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+      }
+      
+      // Close the WebSocket connection
+      if (socket) {
+        socket.close();
+        socket = null;
+      }
+
+      document.getElementById("startButton").disabled = false;
+      document.getElementById("stopButton").disabled = true;
+    });
+  </script>
 </body>
+
 </html>
