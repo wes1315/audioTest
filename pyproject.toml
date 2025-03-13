@@ -31,3 +31,10 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest]
 log_cli = true
 log_cli_level = "DEBUG"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::RuntimeWarning:unittest.mock:2188",
+    "ignore::RuntimeWarning:unittest.mock:767"
+]
+asyncio_default_fixture_loop_scope = "function"

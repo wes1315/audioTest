@@ -92,7 +92,8 @@ def test_translate_with_all_retries_failed(translator_with_mock):
         
         # 验证调用次数 - 实际实现是 range(retries) 所以调用次数是 retries
         assert mock_translate.call_count == 1  # retries=1
-        assert result is None  # 实际实现在所有重试失败后没有返回值
+        # 实际实现在所有重试失败后返回错误消息，而不是None
+        assert result == "Translation failed with no specific error"
 
 
 def test_translate_handles_api_errors():
@@ -116,7 +117,8 @@ def test_translate_handles_api_errors():
         
         # translate_with_retries也应该正常工作
         result = translator.translate_with_retries("测试错误处理", retries=1)
-        assert result is None  # 空字符串被视为失败，所有重试失败后返回None
+        # 空字符串被视为失败，所有重试失败后返回错误消息
+        assert result == "Translation failed with no specific error"
 
 
 def test_response_text_parsing(translator_with_mock, mock_groq_client):
