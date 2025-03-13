@@ -74,6 +74,7 @@
 
     // Connect to WebSocket server - will be called when Start Recording is clicked
     function connectWebSocket() {
+      console.log("Connecting to WebSocket server...");
       socket = new WebSocket("ws://wesley:8765");
 
       // WebSocket connection event
@@ -95,6 +96,8 @@
       socket.addEventListener("message", (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log("Received WebSocket message:", data);
+          
           if (data.type === "recognizing") {
             // 实时转录显示
             const speakerInfo = data.speaker ? `[Speaker ${data.speaker}] ` : "";
@@ -110,6 +113,7 @@
             // Use the limited results function instead of directly appending
             addLimitedResult(recognizedDiv, speakerElement);
           } else if (data.type === "translated") {
+            console.log("Received translation:", data.result, "for speaker:", data.speaker);
             const translatedDiv = document.getElementById("translatedResults");
             const speakerId = data.speaker || "unknown";
             const entry = document.createElement("div");
@@ -118,15 +122,23 @@
             
             // Use the limited results function instead of directly appending
             addLimitedResult(translatedDiv, entry);
+            console.log("Added translation to display:", data.result);
+          } else {
+            console.log("Unknown message type:", data.type);
           }
         } catch (error) {
-          console.error("处理WebSocket消息时出错:", error);
+          console.error("处理WebSocket消息时出错:", error, "Raw message:", event.data);
         }
       });
 
       // Close event handling
       socket.addEventListener("close", (event) => {
         console.log("WebSocket connection closed", event);
+        // If the recording is still in progress, try to stop it
+        if (document.getElementById("stopButton").disabled === false) {
+          console.log("Recording was in progress, stopping it due to WebSocket closure");
+          document.getElementById("stopButton").click();
+        }
       });
     }
 
@@ -235,6 +247,8 @@
 
     // Add a result to a container, limiting to RESERVED_LINES
     function addLimitedResult(container, element) {
+      console.log("Adding element to container:", container.id, "Element:", element.outerHTML);
+      
       // Add the new element
       container.appendChild(element);
       
@@ -246,6 +260,7 @@
       
       // Scroll to the bottom to show newest content
       container.scrollTop = container.scrollHeight;
+      console.log(`Container ${container.id} now has ${container.children.length} elements`);
     }
 
     // 开始录制

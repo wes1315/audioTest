@@ -120,18 +120,26 @@ class AzureCognitiveService:
         asyncio.run_coroutine_threadsafe(self.websocket.send(message), self.loop)
         print(f"发送最终转录结果: {evt.result.text}, 说话人: {speaker_id}")
         
-        # Instead of directly translating, add to the translation queue with a task ID
-        task_id = str(uuid.uuid4())[:8]  # Generate a short unique ID
+        # Generate a short unique ID for this translation task
+        task_id = str(uuid.uuid4())[:8]
+        
+        # Use asyncio.create_task on the event loop to start the enqueue_translation task
+        # This ensures the task runs properly in the event loop context
+        print(f"Creating enqueue_translation task with ID: {task_id}")
         future = asyncio.run_coroutine_threadsafe(
             self.enqueue_translation(evt.result.text, speaker_id, task_id), 
             self.loop
         )
-        # Wait for the future to confirm the task was enqueued
-        try:
-            future.result(timeout=1.0)  # Small timeout to ensure it completes
-            print(f"Successfully enqueued translation task {task_id}")
-        except Exception as e:
-            print(f"Failed to enqueue translation: {e}")
+        
+        # Use a callback to log completion or errors rather than blocking
+        def done_callback(fut):
+            try:
+                fut.result()
+                print(f"Successfully enqueued translation task {task_id}")
+            except Exception as e:
+                print(f"Failed to enqueue translation task {task_id}: {e}")
+                
+        future.add_done_callback(done_callback)
     
     async def enqueue_translation(self, text: str, speaker_id="unknown", task_id=None):
         """
@@ -185,23 +193,34 @@ class AzureCognitiveService:
                     end_time = time.time()
                     duration = end_time - start_time
                     
-                    if translation and hasattr(self, 'websocket') and self.websocket.open:
+                    print(f"[{task_id}] Translation completed in {duration:.2f}s: '{translation}'")
+                    
+                    # Check if websocket is connected using our dedicated method
+                    websocket_connected = await self.is_websocket_connected()
+                    print(f"[{task_id}] Websocket connected: {websocket_connected}")
+
+                    if translation and websocket_connected:
                         translated_message = json.dumps({
                             "type": "translated", 
                             "result": translation,
                             "speaker": speaker_id
                         })
-                        await self.websocket.send(translated_message)
-                        print(f"[{task_id}] 发送翻译结果 (took {duration:.2f}s): {translation}, 说话人: {speaker_id}")
-                        
-                        # Record for debugging
-                        if task_id in self.translation_times:
-                            self.translation_times[task_id]["completed_at"] = end_time
-                            self.translation_times[task_id]["duration"] = duration
-                            self.translation_times[task_id]["translation"] = translation
-                            self.processed_translations.append(self.translation_times[task_id])
+                        print(f"[{task_id}] Sending translated message: {translated_message}")
+                        try:
+                            await self.websocket.send(translated_message)
+                            print(f"[{task_id}] 发送翻译结果 (took {duration:.2f}s): {translation}, 说话人: {speaker_id}")
+                            
+                            # Record for debugging
+                            if task_id in self.translation_times:
+                                self.translation_times[task_id]["completed_at"] = end_time
+                                self.translation_times[task_id]["duration"] = duration
+                                self.translation_times[task_id]["translation"] = translation
+                                self.processed_translations.append(self.translation_times[task_id])
+                        except Exception as e:
+                            print(f"[{task_id}] Failed to send translation via websocket: {e}")
                     else:
-                        print(f"[{task_id}] Translation completed but websocket is closed or translation is empty")
+                        print(f"[{task_id}] Translation completed but unable to send to frontend")
+                        print(f"[{task_id}] translation: '{translation}', websocket connected: {websocket_connected}")
                 except Exception as e:
                     print(f"[{task_id}] Translation failed for text '{text}': {e}")
                     if task_id in self.translation_times:
@@ -284,3 +303,37 @@ class AzureCognitiveService:
         self.push_stream.close()
         self.conversation_transcriber.stop_transcribing_async()
         print("Azure speech recognizer stopped")
+
+    async def is_websocket_connected(self):
+        """
+        Check if the websocket is connected by examining its properties
+        """
+        if not hasattr(self, 'websocket'):
+            return False
+            
+        try:
+            # First check our custom property if it exists
+            if hasattr(self.websocket, 'custom_is_open'):
+                return self.websocket.custom_is_open
+                
+            # Different websocket implementations have different ways to check connection status
+            # Try various attributes that might indicate connection status
+            if hasattr(self.websocket, 'open'):
+                return self.websocket.open
+            elif hasattr(self.websocket, 'closed'):
+                return not self.websocket.closed
+            elif hasattr(self.websocket, 'state') and hasattr(self.websocket.state, 'value'):
+                # Some implementations use a state enum
+                return self.websocket.state.value == 1  # 1 often means OPEN
+            else:
+                # As a last resort, try a simple ping to see if the connection is alive
+                try:
+                    # For internal use only, try a simple attribute access to see if the object is valid
+                    # This won't actually check connection state but might catch some dead references
+                    str(self.websocket)
+                    return True
+                except Exception:
+                    return False
+        except Exception as e:
+            print(f"Error checking websocket connection: {e}")
+            return False

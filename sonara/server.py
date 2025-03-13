@@ -14,6 +14,27 @@ from dotenv import load_dotenv
 import websockets
 from sonara.azure_cog import AzureCognitiveService
 
+
+class WebSocketWrapper:
+    """A wrapper around a websocket connection to ensure proper state tracking"""
+    def __init__(self, websocket):
+        self.websocket = websocket
+        self.is_open = True
+    
+    async def send(self, message):
+        if self.is_open:
+            await self.websocket.send(message)
+        else:
+            print("Warning: Attempted to send message on closed websocket")
+    
+    def close(self):
+        self.is_open = False
+    
+    @property
+    def open(self):
+        return self.is_open
+
+
 async def handle_connection(websocket):
     print("client connected")
     # generate a unique directory for each connection, for saving wav files
@@ -22,9 +43,12 @@ async def handle_connection(websocket):
     os.makedirs(directory, exist_ok=True)
     print(f"audio files will be saved in: {directory}")
 
+    # Wrap the websocket to ensure proper state tracking
+    wrapped_websocket = WebSocketWrapper(websocket)
+    
     # get the current event loop, and initialize the azure recognition service
     loop = asyncio.get_running_loop()
-    azure_service = AzureCognitiveService(websocket, loop)
+    azure_service = AzureCognitiveService(wrapped_websocket, loop)
     
     counter = 1
     try:
@@ -43,7 +67,14 @@ async def handle_connection(websocket):
         print("connection closed, all audio messages saved")
     except websockets.ConnectionClosed:
         print("client disconnected")
+    except Exception as e:
+        print(f"Error in websocket connection handler: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
+        # Mark the websocket as closed
+        wrapped_websocket.close()
+            
         # close the azure push stream and recognizer
         azure_service.close()
 
