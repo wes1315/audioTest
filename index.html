@@ -4,9 +4,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WAV/PCM Audio Capture</title>
+  <title>STT.wav</title>
 
   <style>
+    body {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f5f5f5;
+      color: #333;
+    }
+
+    h1 {
+      text-align: center;
+      color: #1a73e8;
+      margin-bottom: 30px;
+      font-size: 2.5em;
+    }
+
+    h2 {
+      text-align: center;
+      color: #202124;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      font-size: 1.5em;
+    }
+
     .speaker-tag {
       font-weight: bold;
       margin-right: 5px;
@@ -34,19 +58,112 @@
       color: #9AA0A6;
     }
     
-    /* Results divs */
-    #recognizedResults, #translatedResults {
+    /* Results containers */
+    #recognizingResults, 
+    #recognizedResults, 
+    #translatedResults {
       max-height: 300px;
       overflow-y: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      margin: 15px auto;
+      width: 90%;
+      text-align: left;
+    }
+
+    #recognizingResults {
+      min-height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-style: italic;
+      color: #666;
+    }
+
+    /* Recording control buttons */
+    .recording-controls {
+      margin: 30px 0;
+      text-align: center;
+    }
+
+    .recording-button {
+      padding: 15px 30px;
+      font-size: 18px;
+      font-weight: bold;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 0 10px;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    #startButton {
+      background-color: #34A853;
+      color: white;
+    }
+
+    #startButton:hover {
+      background-color: #2E9648;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    #startButton:disabled {
+      background-color: #A8D5B3;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    #stopButton {
+      background-color: #EA4335;
+      color: white;
+    }
+
+    #stopButton:hover {
+      background-color: #D03B2E;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    #stopButton:disabled {
+      background-color: #F5B5B1;
+      cursor: not-allowed;
+      transform: none;
+      box-shadow: none;
+    }
+
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #888;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #555;
     }
   </style>
 
 </head>
 
 <body>
-  <h1>WAV/PCM Audio Capture</h1>
-  <button id="startButton">Start Recording</button>
-  <button id="stopButton" disabled>Stop Recording</button>
+  <h1>STT.wav</h1>
+  <div class="recording-controls">
+    <button id="startButton" class="recording-button">Start Recording</button>
+    <button id="stopButton" class="recording-button" disabled>Stop Recording</button>
+  </div>
 
   <h2>Real-time recognizing results</h2>
   <div id="recognizingResults"></div>
